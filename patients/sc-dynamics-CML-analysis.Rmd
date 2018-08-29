@@ -1,0 +1,63 @@
+---
+title: Analysis of Single Cell Dynamics data from CML patient 0124
+author: Stephanie Hicks
+output: 
+    html_document:
+        theme: cosmo 
+        toc: true
+        toc_float: true
+        highlight: tango
+        number_sections: false
+fig_width: 5
+fig_height: 5 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Summary of patient data
+
+This is scRNA-seq (indrop platform) data from a MPN patient 
+(denoted 0124 patient). The data is stored in a MATLAB (`.MAT`) 
+format. There are the following data sets included in the object: 
+
+* `E` = normalized gene expression for all the cells (5126 genes, 25419 cells)
+* `cellType` = vector of length 5126 representing the cancer status for each cell. 0 means the cell type is not known. 1 means a wild-type cell. 2 means a cancer cells
+* `count_matrix` = raw counts (5126 genes, 25419 cells)
+* `gene.filter` = genes that passed previous quality control filter from SPRING. If a gene is 1 it passed, 0 it did not.
+* `gene_list` = name of the all genes in the same orders as the columns of the `E` matrix and the `count_matrix`
+
+
+## Previous analyses reported by Sahand
+
+_We use SPRING, a dimensionality reduction tool that uses force-directed graph to plot the differentiation trajectories. SPRING has some criteria for selecting a subset of genes that are informative (for example fano factor and mean expression thresholds). There are 353 genes that pass this filtering. These genes are stored in "gene_filter" vector. If a gene is 1 it passed, 0 it did not. SPRING uses the reduced 5126 by 353 gene expression matrix as its starting point (then does PCA to 20 dimensions). tSNE also works well on this data._
+
+# Biological question of interest
+
+Interested in identifying genes that are over-expressed or under-expressed in the cancer cells. Genes that regulate cell cycle would be a good place to start. We think the gene E2F4 (column 6114 of the E matrix) is over expressed in the cancer cells.
+
+
+# Data Analysis
+
+Read in data 
+```{r, message=FALSE, cache=TRUE}
+library(R.matlab)
+dat <- readMat("data/0124Patient_Data.mat")
+
+sce_colData <- data.frame("cancer_status" = dat$cellType)
+sce_rowData <- data.frame("gene_name" = as.character(unlist(dat$gene.list)), 
+                          "gene_filter_spring" = c(dat$gene.filter))
+rownames(sce_rowData) <- sce_rowData$gene_name
+```
+
+Create a `SingleCellExperiment` object
+```{r}
+library(SingleCellExperiment)
+sce <- SingleCellExpeirment(assays = list(counts = dat$count.matrix), 
+          rowData = sce_rowData, colData = sce_colData)
+sce
+```
+
+

@@ -24,7 +24,7 @@ This is scRNA-seq (indrop platform) data from a MPN patient
 format. There are the following data sets included in the object: 
 
 * `E` = normalized gene expression for all the cells (5126 genes, 25419 cells)
-* `cellType` = vector of length 5126 representing the cancer status for each cell. 0 means the cell type is not known. 1 means a wild-type cell. 2 means a cancer cells
+* `cellType` = vector of length 5126 representing the cancer status for each cell. 0 means the cell type is not known. 1 means a wild-type cell. 2 means a cancer cell.
 * `count_matrix` = raw counts (5126 genes, 25419 cells)
 * `gene.filter` = genes that passed previous quality control filter from SPRING. If a gene is 1 it passed, 0 it did not.
 * `gene_list` = name of the all genes in the same orders as the columns of the `E` matrix and the `count_matrix`
@@ -41,10 +41,11 @@ Interested in identifying genes that are over-expressed or under-expressed in th
 
 # Data Analysis
 
+## Load data
 Read in data 
 ```{r, message=FALSE, cache=TRUE}
 library(R.matlab)
-dat <- readMat("data/0124Patient_Data.mat")
+dat <- readMat("data/0124Patient_Data.mat") # dat is 75 MB in size
 
 sce_colData <- data.frame("cancer_status" = dat$cellType)
 sce_rowData <- data.frame("gene_name" = as.character(unlist(dat$gene.list)), 
@@ -53,11 +54,44 @@ rownames(sce_rowData) <- sce_rowData$gene_name
 ```
 
 Create a `SingleCellExperiment` object
-```{r}
+```{r, eval=FALSE}
 library(SingleCellExperiment)
-sce <- SingleCellExpeirment(assays = list(counts = dat$count.matrix), 
+library(scater)
+sce <- SingleCellExperiment(assays = list(counts = t(dat$count.matrix)), 
           rowData = sce_rowData, colData = sce_colData)
-sce
+
+# Remove genes not expressed in at least 5 cells
+keep_feature <- rowSums(counts(sce) > 0) > 5
+table(keep_feature)
+sce <- sce[keep_feature, ]
+
+# calcualte QC metrics
+sce <- calculateQCMetrics(sce)
+
+# save SCE object
+saveRDS(sce, file = "data/sce.rds")
 ```
+
+## Exploratory Data Analysis
+
+Histogram of library sizes and number 
+of expressed genes.
+```{r}
+par(mfrow=c(1,2))
+hist(sce$total_counts/1e4, xlab="Library sizes (thousands)", main="",
+     breaks=20, col="grey80", ylab="Number of cells")
+hist(sce$total_features, xlab="Number of expressed genes", main="",
+     breaks=20, col="grey80", ylab="Number of cells")
+```
+
+We remove cells with log-library sizes that are more than 3 median absolute deviations (MADs) below the median log-library size. (A log-transformation improves resolution at small values, especially when the MAD of the raw values is comparable to or greater than the median.) We also remove cells where the log-transformed number of expressed genes is 3 MADs below the median.
+```{r}
+libsize.drop <- isOutlier(sce$total_counts, nmads=3, type="lower", log=TRUE)
+feature.drop <- isOutlier(sce$total_features, nmads=3, type="lower", log=TRUE)
+
+sce <- sce[,!(libsize.drop | feature.drop)]
+```
+
+
 
 

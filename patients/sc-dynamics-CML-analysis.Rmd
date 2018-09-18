@@ -1,6 +1,6 @@
 ---
 title: Analysis of Single Cell Dynamics data from CML patient 0124
-author: Stephanie Hicks
+author: Stephanie Hicks, Yuchao Jiang
 output: 
     html_document:
         theme: cosmo 
@@ -93,5 +93,155 @@ sce <- sce[,!(libsize.drop | feature.drop)]
 ```
 
 
+## Run Seurat with additional QC
 
+Below, we create a Seurat object and apply additional qualtiy control procedures on both cells and genes.
 
+```{r}
+library(Seurat)
+CML0124_raw=counts(sce)
+colnames(CML0124_raw)=paste('cell',1:ncol(CML0124_raw),sep='')
+CML0124 <- CreateSeuratObject(raw.data = CML0124_raw, min.cells = 3, min.genes = 200, 
+                            project = "CML0124")
+
+mito.genes <- grep(pattern = "^MT-", x = rownames(x = CML0124@data), value = TRUE)
+percent.mito <- Matrix::colSums(CML0124@raw.data[mito.genes, ])/Matrix::colSums(CML0124@raw.data)
+
+CML0124 <- AddMetaData(object = CML0124, metadata = percent.mito, col.name = "percent.mito")
+VlnPlot(object = CML0124, features.plot = c("nGene", "nUMI", "percent.mito"), nCol = 3)
+
+par(mfrow=c(1,2))
+nUMI=apply(CML0124_raw,2,sum)
+nGene=apply(CML0124_raw,2,function(x){sum(x>0)})
+hist(nUMI,100, xlab='Number of UMIs',main='Number of UMIs detected per cell')
+hist(nGene,100, xlab='Number of genes',main='Number of genes detected per cell')
+
+# Cell QC: remove cells with 3 MAD below or above the median
+filter1= (nUMI >= median(nUMI)-3*mad(nUMI)) & (nUMI <= median(nUMI)+3*mad(nUMI))
+filter2= (nGene >= median(nGene)-3*mad(nGene)) & (nGene <= median(nGene)+3*mad(nGene))
+CML0124_raw=CML0124_raw[,filter1&filter2]
+sce=sce[,filter1&filter2]
+
+# Cell QC: remove cells with greater than 20% of UMIs mapped to mitochondria:
+mito.prop=apply(CML0124_raw[grep('^MT-',rownames(CML0124_raw)),],2,sum)/apply(CML0124_raw,2,sum)
+par(mfrow=c(1,1))
+hist(mito.prop,100)
+filter=mito.prop<=0.2
+CML0124_raw=CML0124_raw[,filter]
+sce=sce[,filter]
+
+# Cell QC: look at ratio of nUMI and nGene
+nUMI=apply(CML0124_raw,2,sum)
+nGene=apply(CML0124_raw,2,function(x){sum(x>0)})
+plot(nUMI, nGene)
+spl=smooth.spline(nGene~nUMI)
+points(spl[[1]],spl[[2]],col=2,type='l',lwd=2)
+resid=(nGene-predict(spl,nUMI)$y)/nGene
+hist(resid,100)
+
+plot(nUMI, nGene)
+points(spl[[1]],spl[[2]],col=2,type='l',lwd=2)
+filter= (resid >= median(resid)-3*mad(resid)) & (resid <= median(resid)+3*mad(resid))
+points(nUMI[!filter], nGene[!filter],col=3, pch=16)
+CML0124_raw=CML0124_raw[,filter]
+sce=sce[,filter]
+
+# Gene QC: 1 CPM in at least 5 cells
+N=apply(CML0124_raw,2,sum)/10^6
+CPM=round(t(apply(CML0124_raw,1,function(x){x/N})),2)
+filter= apply(CPM,1,function(x){sum(x>=1)>=5})
+CML0124_raw=CML0124_raw[filter,]
+CPM=CPM[filter,]
+sce=sce[filter,]
+dim(sce); dim(CPM); dim(CML0124_raw)
+```
+
+Below is an application of Seurat after QC.
+
+```{r}
+# create seurat object and calculate mito proportion after QC
+CML0124 <- CreateSeuratObject(raw.data = CML0124_raw, min.cells = 3, min.genes = 200, 
+                            project = "CML0124")
+mito.genes <- grep(pattern = "^MT-", x = rownames(x = CML0124@data), value = TRUE)
+percent.mito <- Matrix::colSums(CML0124@raw.data[mito.genes, ])/Matrix::colSums(CML0124@raw.data)
+CML0124 <- AddMetaData(object = CML0124, metadata = percent.mito, col.name = "percent.mito")
+VlnPlot(object = CML0124, features.plot = c("nGene", "nUMI", "percent.mito"), nCol = 3)
+CML0124@meta.data=cbind(CML0124@meta.data, cancer_status=sce@colData$cancer_status)
+
+# Filter cells
+CML0124 <- FilterCells(object = CML0124, subset.names = c("nGene", "percent.mito"), 
+                     low.thresholds = c(200, -Inf), high.thresholds = c(Inf, 1))
+
+# log normalize data
+CML0124 <- NormalizeData(object = CML0124, normalization.method = "LogNormalize", 
+                       scale.factor = 10000)
+
+# Find highly variable genes
+par(mfrow=c(1,1))
+CML0124 <- FindVariableGenes(object = CML0124, mean.function = ExpMean, dispersion.function = LogVMR, 
+                           x.low.cutoff = 0.1, x.high.cutoff = 6, y.cutoff = 0.5)
+head(CML0124@var.genes)
+spring.var.genes=rownames(CML0124_raw)[which(rowData(sce)$gene_filter_spring==1)]
+intersect(CML0124@var.genes, spring.var.genes)
+
+# Scale data and remove unwanted sources of variation: this is based on linear scaling
+CML0124 <- ScaleData(object = CML0124, vars.to.regress = c("nUMI", "percent.mito"))
+
+# PCA
+CML0124 <- RunPCA(object = CML0124, pc.genes = CML0124@var.genes, do.print = TRUE, pcs.print = 1:5, 
+                genes.print = 5, pcs.compute = 40)
+VizPCA(object = CML0124, pcs.use = 1:2)
+PCAPlot(object = CML0124, dim.1 = 1, dim.2 = 2)
+
+# Determine the number of PCs
+PCElbowPlot(object = CML0124, num.pc = 40)
+
+# Cluster cells
+CML0124 <- FindClusters(object = CML0124, reduction.type = "pca", dims.use = 1:20, 
+                      resolution = 0.8, print.output = 0, save.SNN = TRUE, force.recalc = TRUE)
+PrintFindClustersParams(object = CML0124)
+
+# Run t-SNE
+CML0124 <- RunTSNE(object = CML0124, dims.use = 1:20, do.fast = TRUE)
+
+TSNEPlot(object = CML0124, do.label = T)
+TSNEPlot(object = CML0124, group.by = 'cancer_status')
+
+```
+
+Perform differential expression analysis and calculate spearman correlation between each pair of clusters.
+```{r}
+
+# Find number of differentially expressed genes between each pair of clusters
+nClusters = length(unique(CML0124@ident))
+clusterQcMat = matrix(0, nClusters, nClusters)
+for ( i in 1:nClusters ) {
+  for ( j in 1:nClusters ) {
+    if (i < j){
+      markers = FindMarkers(object = CML0124, ident.1 = i-1 , ident.2 = j-1 , min.pct = 0.25)
+      clusterQcMat[ i, j ] = nrow(markers[markers$p_val_adj < .01,])
+    }
+  }
+}
+
+clusterQcMatSym = clusterQcMat + t(clusterQcMat)
+rownames(clusterQcMatSym) = paste(0:(nClusters - 1))
+colnames(clusterQcMatSym) = paste(0:(nClusters - 1))
+save(clusterQcMatSym, file='data/clusterQcMatSym.rda')
+
+library(pheatmap)
+temp=pheatmap(clusterQcMatSym)
+pheatmap(clusterQcMatSym[temp$tree_row$order,temp$tree_row$order],cluster_rows = F, cluster_cols = F)
+
+# Construct pseudo bulk for each cluster, find pair-wise similarity (correlation) between each pair of clusters
+pseudo.bulk=matrix(nrow=nrow(CML0124_raw), ncol=nClusters)
+for(i in 1:nClusters){
+  cat(i,'\n')
+  pseudo.bulk[,i]=apply(CML0124_raw[,which(CML0124@ident==(i-1))],1,sum)
+}
+colnames(pseudo.bulk)=0:(nClusters-1)
+rownames(pseudo.bulk)=rownames(CML0124_raw)
+head(pseudo.bulk)
+pheatmap(cor(pseudo.bulk, method='spearman'))
+pheatmap(cor(pseudo.bulk, method = 'spearman')[temp$tree_row$order,temp$tree_row$order],cluster_rows = F, cluster_cols = F)
+```

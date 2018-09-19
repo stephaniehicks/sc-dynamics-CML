@@ -69,21 +69,10 @@ library(scater)
 sce <- SingleCellExperiment(assays = list(counts = t(dat$count.matrix)), 
           rowData = sce_rowData, colData = sce_colData)
 
-# Remove genes not expressed in at least 5 cells
-keep_feature <- rowSums(counts(sce) > 0) > 5
-table(keep_feature)
-sce <- sce[keep_feature, ]
-
-# add ensembl gene names
-mart <- useMart("ensembl", "hsapiens_gene_ensembl")
-biomaRt::getBM(attributes = c("hgnc_symbol", "ensembl_gene_id"), mart = mart,
-                    filters = "hgnc_symbol", values = as.character(rowData(sce)$gene_name))
-
 rowData(sce)$gene_name_clean <- gsub(pattern = "\\.[0-9]+", replacement = "", x = rownames(sce))
 sce <- sce[!duplicated(rowData(sce)$gene_name_clean), ] 
 rownames(sce) <- rowData(sce)$gene_name_clean
 
-mart <- useMart("ensembl", "hsapiens_gene_ensembl")
 sce <- scater::getBMFeatureAnnos(sce,
     filters = "hgnc_symbol",
     attributes = c("ensembl_gene_id",
@@ -106,7 +95,7 @@ sce <- calculateQCMetrics(sce,
 saveRDS(sce, file = "data/sce.rds")
 ```
 
-## Exploratory Data Analysis
+## EDA and QC on the cells
 
 ```{r}
 library(SingleCellExperiment)
@@ -136,6 +125,9 @@ plot(sce$total_features_by_counts, sce$pct_counts_MT)
 There are definitely cells that have much higher pct MT
 that need to be removed. 
 
+
+### Remove low-quality cells 
+
 We remove cells with log-library sizes that are more than 
 3 median absolute deviations (MADs) below the median 
 log-library size. (A log-transformation improves resolution 
@@ -157,15 +149,76 @@ plot(sce2$total_features_by_counts, sce2$pct_counts_MT)
 ```
 
 
+### Classification of cell cycle phase
+
+We use the prediction method described by Scialdone 
+et al. (2015) to classify cells into cell cycle phases 
+based on the gene expression data. Using a training dataset, 
+the sign of the difference in expression between two genes 
+was computed for each pair of genes. Pairs with changes in the 
+sign across cell cycle phases were chosen as markers. Cells in 
+a test dataset can then be classified into the appropriate 
+phase, based on whether the observed sign for each marker pair 
+is consistent with one phase or another.
+
+This approach is implemented in the cyclone function from the 
+scran package. The package contains a pre-trained set of marker 
+pairs for mouse and human data, which we can load in the the 
+`readRDS()` function. We use the Ensembl identifiers for each 
+gene in our dataset to match up with the names in the pre-trained 
+set of gene pairs.
+
+This can take a while to run. 
 ```{r}
-grep("E2F4", rownames(sce)) # 3966
-hist(counts(sce)[3966, ])
+library(scran)
+human.pairs <- readRDS(system.file("exdata", "human_cycle_markers.rds", package="scran"))
+assigned <- cyclone(sce, pairs=human.pairs, gene.names=rowData(sce)$ensembl_gene_id)
+head(assigned$scores)
+
+plot(assigned$score$G1, assigned$score$G2M, 
+    xlab="G1 score", ylab="G2/M score", pch=16)
+```
+The cyclone result for each cell in the dataset is shown above. 
+Each cell is assigned a score for each phase, with a higher score 
+corresponding to a higher probability that the cell is in that 
+phase. We focus on the G1 and G2/M scores as these are the 
+most informative for classification.
+
+Cells are classified as being in G1 phase if the G1 score 
+is above 0.5 and greater than the G2/M score; in G2/M phase 
+if the G2/M score is above 0.5 and greater than the G1 score; 
+and in S phase if neither score is above 0.5. We save these 
+assignments into the `SingleCellExperiment` object for later use.
+
+```{r}
+sce$phases <- assigned$phases
+table(sce$phases)
+
+x <- table(sce$cancer_status[sce$cancer_status != 0], 
+      sce$phases[sce$cancer_status != 0])  
+x / rowSums(x)
+
+chisq.test(x)
+```
+
+**Note**: We do not filter out low-abundance genes before 
+applying cyclone. Even if a gene is not expressed in any cell, 
+it may still be useful for classification if it is phase-specific. 
+Its lack of expression relative to other genes will still yield 
+informative pairs, and filtering them out would reduce power.
+
+## EDA and QC on the genes
+
+```{r}
+# Remove genes not expressed in at least 5 cells
+keep_feature <- rowSums(counts(sce) > 0) > 5
+table(keep_feature)
+sce <- sce[keep_feature, ]
 ```
 
 
 
-
-## Run Seurat with additional QC
+# Run Seurat with additional QC
 
 Below, we create a Seurat object and apply additional qualtiy control procedures on both cells and genes.
 

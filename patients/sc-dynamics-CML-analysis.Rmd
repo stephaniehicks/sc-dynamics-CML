@@ -36,10 +36,18 @@ _We use SPRING, a dimensionality reduction tool that uses force-directed graph t
 
 # Biological question of interest
 
-Interested in identifying genes that are over-expressed or under-expressed in the cancer cells. Genes that regulate cell cycle would be a good place to start. We think the gene E2F4 (column 6114 of the E matrix) is over expressed in the cancer cells.
+* Interested in identifying genes that are over-expressed or under-expressed in the cancer cells.
+* Are there differences between cancer and normal cells in genes that regulate cell cycle?
+* Hypothesis: Previous analyses suggested the gene E2F4 is over expressed in the cancer cells.
 
 
 # Data Analysis
+
+Immediate to-dos: 
+
+* identify doublets, empty cells, and and apply normalization
+* Use `scran::cyclone()` in Bioconductor to compare cancer vs normal cells in different stages of cell cycle
+
 
 ## Load data
 Read in data 
@@ -50,6 +58,7 @@ dat <- readMat("data/0124Patient_Data.mat") # dat is 75 MB in size
 sce_colData <- data.frame("cancer_status" = dat$cellType)
 sce_rowData <- data.frame("gene_name" = as.character(unlist(dat$gene.list)), 
                           "gene_filter_spring" = c(dat$gene.filter))
+sce_rowData$gene_name <- as.character(sce_rowData$gene_name)
 rownames(sce_rowData) <- sce_rowData$gene_name
 ```
 
@@ -65,14 +74,46 @@ keep_feature <- rowSums(counts(sce) > 0) > 5
 table(keep_feature)
 sce <- sce[keep_feature, ]
 
-# calcualte QC metrics
-sce <- calculateQCMetrics(sce)
+# add ensembl gene names
+mart <- useMart("ensembl", "hsapiens_gene_ensembl")
+biomaRt::getBM(attributes = c("hgnc_symbol", "ensembl_gene_id"), mart = mart,
+                    filters = "hgnc_symbol", values = as.character(rowData(sce)$gene_name))
+
+rowData(sce)$gene_name_clean <- gsub(pattern = "\\.[0-9]+", replacement = "", x = rownames(sce))
+sce <- sce[!duplicated(rowData(sce)$gene_name_clean), ] 
+rownames(sce) <- rowData(sce)$gene_name_clean
+
+mart <- useMart("ensembl", "hsapiens_gene_ensembl")
+sce <- scater::getBMFeatureAnnos(sce,
+    filters = "hgnc_symbol",
+    attributes = c("ensembl_gene_id",
+        "hgnc_symbol", "chromosome_name",
+        "start_position", "end_position"),
+    feature_symbol = "hgnc_symbol",
+    feature_id = "ensembl_gene_id",
+    biomart = "ENSEMBL_MART_ENSEMBL",
+    dataset = "hsapiens_gene_ensembl",
+    host = "www.ensembl.org")
+
+# separate information about mitochondrial genes
+isSpike(sce, "MT") <- grepl("^MT-", rownames(sce)) 
+
+# calculate QC metrics
+sce <- calculateQCMetrics(sce, 
+          feature_controls = list(MT = isSpike(sce, "MT")))
 
 # save SCE object
 saveRDS(sce, file = "data/sce.rds")
 ```
 
 ## Exploratory Data Analysis
+
+```{r}
+library(SingleCellExperiment)
+library(scater)
+sce <- readRDS("data/sce.rds")
+```
+
 
 Histogram of library sizes and number 
 of expressed genes.
@@ -84,13 +125,44 @@ hist(sce$total_features, xlab="Number of expressed genes", main="",
      breaks=20, col="grey80", ylab="Number of cells")
 ```
 
-We remove cells with log-library sizes that are more than 3 median absolute deviations (MADs) below the median log-library size. (A log-transformation improves resolution at small values, especially when the MAD of the raw values is comparable to or greater than the median.) We also remove cells where the log-transformed number of expressed genes is 3 MADs below the median.
+
+```{r}
+boxplot(sce$total_counts ~ sce$cancer_status)
+boxplot(sce$total_features_by_counts ~ sce$cancer_status)
+boxplot(sce$pct_counts_MT ~ sce$cancer_status)
+
+plot(sce$total_features_by_counts, sce$pct_counts_MT)
+```
+There are definitely cells that have much higher pct MT
+that need to be removed. 
+
+We remove cells with log-library sizes that are more than 
+3 median absolute deviations (MADs) below the median 
+log-library size. (A log-transformation improves resolution 
+at small values, especially when the MAD of the raw values 
+is comparable to or greater than the median). Next, we 
+remove cells where the log-transformed number of expressed 
+genes is 3 MADs below the median. Then, we remove cells 
+with percent mitochondria 3 MADs above the median. 
+
 ```{r}
 libsize.drop <- isOutlier(sce$total_counts, nmads=3, type="lower", log=TRUE)
 feature.drop <- isOutlier(sce$total_features, nmads=3, type="lower", log=TRUE)
+MT.drop <- isOutlier(sce$pct_counts_MT, nmads=3, type="higher", log=TRUE)
 
-sce <- sce[,!(libsize.drop | feature.drop)]
+sce <- sce[,!(libsize.drop | feature.drop | MT.drop)]
+# sanity check
+plot(sce2$total_features_by_counts, sce2$pct_counts_MT)
+
 ```
+
+
+```{r}
+grep("E2F4", rownames(sce)) # 3966
+hist(counts(sce)[3966, ])
+```
+
+
 
 
 ## Run Seurat with additional QC

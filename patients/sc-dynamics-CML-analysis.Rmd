@@ -403,6 +403,7 @@ detest.result <- deTest(result.multi, c("normal", "cancer"),
                         verbose = F, show.message = F,
                         N.genes.null = 10000, n.cores = 4, type = "PSOCK")
 
+
 par(mfrow=c(1,2))
 gene.normal=result.multi$descend.list.list$normal$E2F4
 gene.cancer=result.multi$descend.list.list$cancer$E2F4
@@ -411,6 +412,7 @@ plot(gene.normal@distribution[,'theta'],gene.normal@distribution[,'g'],type='b',
      xlab='Discretized expression',ylab='probability', pch=16, cex=0.5)
 points(gene.cancer@distribution[,'theta'],gene.cancer@distribution[,'g'],type='b',col='blue', pch=16, cex=0.5)
 title('E2F4')
+legend('topright',legend=c('cancer','normal'),pch=c(16,16),col=c('blue','red'),lty=c(1,1))
 detest.result$p.values['E2F4',]
 
 gene.normal=result.multi$descend.list.list$normal$E2F2
@@ -420,6 +422,7 @@ plot(gene.normal@distribution[,'theta'],gene.normal@distribution[,'g'],type='b',
      xlab='Discretized expression',ylab='probability', pch=16, cex=0.5)
 points(gene.cancer@distribution[,'theta'],gene.cancer@distribution[,'g'],type='b',col='blue', pch=16, cex=0.5)
 title('E2F2')
+legend('topright',legend=c('cancer','normal'),pch=c(16,16),col=c('blue','red'),lty=c(1,1))
 detest.result$p.values['E2F2',]
 
 detest.result$p.values[1:10,]

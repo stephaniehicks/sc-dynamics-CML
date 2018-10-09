@@ -371,7 +371,8 @@ pheatmap(cor(pseudo.bulk, method='spearman'))
 pheatmap(cor(pseudo.bulk, method = 'spearman')[temp$tree_row$order,temp$tree_row$order],cluster_rows = F, cluster_cols = F)
 ```
 
-Test distribution difference between 199 cancer and 635normal cells. We used DESCEND to test for differences in nonzero fraction, nonzero intensity, mean, coefficient of variance, and Gini coefficient between cancer cells and normal cells.
+# Test distribution difference between cancer and normal cells
+We used DESCEND to test for differences in nonzero fraction, nonzero intensity, mean, coefficient of variance, and Gini coefficient between cancer cells and normal cells. There are 199 cancer cells and 635 normal cells past QC. We test on the 353 genes that pass the filtering strategy reported by SPRING (with E2F4 added).
 ```{r}
 # change E2F4 to pass gene filter
 rowData(sce)$gene_filter_spring[which(rownames(sce)=='E2F4')]=1

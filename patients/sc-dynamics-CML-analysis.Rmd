@@ -370,3 +370,56 @@ head(pseudo.bulk)
 pheatmap(cor(pseudo.bulk, method='spearman'))
 pheatmap(cor(pseudo.bulk, method = 'spearman')[temp$tree_row$order,temp$tree_row$order],cluster_rows = F, cluster_cols = F)
 ```
+
+Test distribution difference between 199 cancer and 635normal cells. We used DESCEND to test for differences in nonzero fraction, nonzero intensity, mean, coefficient of variance, and Gini coefficient between cancer cells and normal cells.
+```{r}
+# change E2F4 to pass gene filter
+rowData(sce)$gene_filter_spring[which(rownames(sce)=='E2F4')]=1
+gene.filter=which(rowData(sce)$gene_filter_spring==1)
+CML0124_raw=CML0124_raw[gene.filter,]
+sce=sce[gene.filter,]
+cell.filter= which(colData(sce)$cancer_status!=0)
+CML0124_raw=CML0124_raw[,cell.filter]
+sce=sce[,cell.filter]
+N=N[cell.filter]
+
+dim(CML0124_raw); dim(sce); length(N)
+
+
+library(descend)
+labels=colData(sce)$cancer_status
+labels[labels==1]='normal'
+labels[labels==2]='cancer'
+labels=as.factor(labels)
+result.multi <- descendMultiPop(CML0124_raw,
+                                labels = labels,
+                                scaling.consts = N,
+                                verbose = F, show.message = F,
+                                n.cores = 4, type = "PSOCK")
+
+detest.result <- deTest(result.multi, c("normal", "cancer"),
+                        CML0124_raw, labels,
+                        verbose = F, show.message = F,
+                        N.genes.null = 10000, n.cores = 4, type = "PSOCK")
+
+par(mfrow=c(1,2))
+gene.normal=result.multi$descend.list.list$normal$E2F4
+gene.cancer=result.multi$descend.list.list$cancer$E2F4
+plot(gene.normal@distribution[,'theta'],gene.normal@distribution[,'g'],type='b',col='red',
+     ylim=c(0,max(gene.normal@distribution[,'g'],gene.cancer@distribution[,'g'])),
+     xlab='Discretized expression',ylab='probability', pch=16, cex=0.5)
+points(gene.cancer@distribution[,'theta'],gene.cancer@distribution[,'g'],type='b',col='blue', pch=16, cex=0.5)
+title('E2F4')
+detest.result$p.values['E2F4',]
+
+gene.normal=result.multi$descend.list.list$normal$E2F2
+gene.cancer=result.multi$descend.list.list$cancer$E2F2
+plot(gene.normal@distribution[,'theta'],gene.normal@distribution[,'g'],type='b',col='red',
+     ylim=c(0,max(gene.normal@distribution[,'g'],gene.cancer@distribution[,'g'])),
+     xlab='Discretized expression',ylab='probability', pch=16, cex=0.5)
+points(gene.cancer@distribution[,'theta'],gene.cancer@distribution[,'g'],type='b',col='blue', pch=16, cex=0.5)
+title('E2F2')
+detest.result$p.values['E2F2',]
+
+detest.result$p.values[1:10,]
+```

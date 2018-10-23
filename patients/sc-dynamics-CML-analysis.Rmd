@@ -51,7 +51,7 @@ Immediate to-dos:
 
 ## Load data
 Read in data 
-```{r, message=FALSE, cache=TRUE}
+```{r, message=FALSE, cache=TRUE, eval=FALSE}
 library(R.matlab)
 dat <- readMat("data/0124Patient_Data.mat") # dat is 75 MB in size
 
@@ -116,8 +116,9 @@ hist(sce$total_features, xlab="Number of expressed genes", main="",
 
 
 ```{r}
-boxplot(sce$total_counts ~ sce$cancer_status)
-boxplot(sce$total_features_by_counts ~ sce$cancer_status)
+par(mfrow=c(2,2))
+boxplot(sce$total_counts ~ sce$cancer_status, log="y")
+boxplot(sce$total_features_by_counts ~ sce$cancer_status, log="y")
 boxplot(sce$pct_counts_MT ~ sce$cancer_status)
 
 plot(sce$total_features_by_counts, sce$pct_counts_MT)
@@ -143,8 +144,10 @@ feature.drop <- isOutlier(sce$total_features, nmads=3, type="lower", log=TRUE)
 MT.drop <- isOutlier(sce$pct_counts_MT, nmads=3, type="higher", log=TRUE)
 
 sce <- sce[,!(libsize.drop | feature.drop | MT.drop)]
+
 # sanity check
-plot(sce2$total_features_by_counts, sce2$pct_counts_MT)
+par(mfrow=c(1,1))
+plot(sce$total_features_by_counts, sce$pct_counts_MT)
 
 ```
 
@@ -169,15 +172,43 @@ gene in our dataset to match up with the names in the pre-trained
 set of gene pairs.
 
 This can take a while to run. 
-```{r}
+```{r, eval=FALSE}
 library(scran)
 human.pairs <- readRDS(system.file("exdata", "human_cycle_markers.rds", package="scran"))
 assigned <- cyclone(sce, pairs=human.pairs, gene.names=rowData(sce)$ensembl_gene_id)
 head(assigned$scores)
 
-plot(assigned$score$G1, assigned$score$G2M, 
-    xlab="G1 score", ylab="G2/M score", pch=16)
+sce$G1_score <- assigned$score$G1
+sce$G2M_score <- assigned$score$G2M
+sce$S_score <- assigned$score$S
+sce$phases <- assigned$phases
+
+# save SCE object
+saveRDS(sce, file = "data/sce.rds")
 ```
+
+```{r}
+library(tidverse)
+library(cowplot)
+
+sce <- readRDS("data/sce.rds")
+sce$cancer_status <- as.factor(sce$cancer_status)
+
+p1 <- as.data.frame(colData(sce)) %>% 
+  ggplot(aes(x=assigned$score$G1, y=assigned$score$G2M, 
+             color = cancer_status)) +
+  geom_point()
+p2 <- as.data.frame(colData(sce)) %>% 
+  ggplot(aes(x=assigned$score$G1, y=assigned$score$G2M, 
+             color = phases)) + 
+  geom_point()
+
+pdf("figures/2018-10-23-cell-cycle.pdf", width=12,height=4)
+plot_grid(p1, p2, ncol=2, labels = LETTERS[1:2])
+dev.off()
+
+```
+
 The cyclone result for each cell in the dataset is shown above. 
 Each cell is assigned a score for each phase, with a higher score 
 corresponding to a higher probability that the cell is in that 
@@ -191,15 +222,34 @@ and in S phase if neither score is above 0.5. We save these
 assignments into the `SingleCellExperiment` object for later use.
 
 ```{r}
-sce$phases <- assigned$phases
 table(sce$phases)
 
-x <- table(sce$cancer_status[sce$cancer_status != 0], 
-      sce$phases[sce$cancer_status != 0])  
+x <- table(factor(sce$cancer_status[sce$cancer_status != 0]), 
+      sce$phases[sce$cancer_status != 0]) 
+# > x
+#      G1 G2M   S
+#   1 270 158 231
+#   2  81  59  66
+
 x / rowSums(x)
+# > x / rowSums(x)
+#            G1       G2M         S
+#   1 0.4097117 0.2397572 0.3505311
+#   2 0.3932039 0.2864078 0.3203883
 
 chisq.test(x)
+# > chisq.test(x)
+# 
+#         Pearson's Chi-squared test
+# 
+# data:  x
+# X-squared = 1.8822, df = 2, p-value = 0.3902
+
 ```
+
+We see the p-value is not statistically significant with 
+a p-value of 0.3902. 
+
 
 **Note**: We do not filter out low-abundance genes before 
 applying cyclone. Even if a gene is not expressed in any cell, 

@@ -1,0 +1,128 @@
+---
+title: Analysis of scRNA-seq data from CML patient 0114 (Jan 14, 2019)
+author: Stephanie Hicks
+output: 
+    html_document:
+        theme: cosmo 
+        toc: true
+        toc_float: true
+        highlight: tango
+        number_sections: false
+fig_width: 5
+fig_height: 5 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Summary of patient data
+
+This is scRNA-seq (10X Genomics platform) data from a MPN patient 
+(denoted `0114` patient) from Jan 14, 2019. The data is available 
+on the JHPCE cluster and the following files are in the folder: 
+
+- `barcodes_2.tsv`: barcode sequences of the detected cells.
+- `features.tsv`: names of the genes (columns of the count matrix)
+- `mycounts_2.csv`: count matrix (445.8 MB in size). The rows are the cells and the columns are the genes (6598 cells, 33694 genes). Each entry is the number of detected transcripts of a given gene in a given cell.
+- `mygroupings_threshold_NS_100_Rev2.csv`: contains the number of wild-type or cancer transcripts detected in each cell. The columns are the cells (same number as the rows of the count matrix). There are two rows. Row 1 is the number of WT Jak2 transcripts. Row 2 is the number of cancer Jak2 transcripts.
+
+The count matrix above is from our first sequencing run on this patient library. However, it has since been resequenced to increase depth by a factor of 3. This higher-depth data should be available by our meeting in Boston on March 8, 2019. 
+
+## Previous analyses reported by Sahand
+
+_We use SPRING, a dimensionality reduction tool that uses force-directed graph to plot the differentiation trajectories. SPRING has some criteria for selecting a subset of genes that are informative (for example fano factor and mean expression thresholds)._
+
+# Biological question of interest
+
+* Interested in identifying genes that are over-expressed or under-expressed in the cancer cells.
+* Are there differences between cancer and normal cells in genes that regulate cell cycle?
+* Hypothesis: Previous analyses suggested the gene E2F4 is over expressed in the cancer cells.
+
+# Data Analysis
+
+Immediate to-dos: 
+
+* identify doublets, empty cells, and and apply normalization
+* Use `scran::cyclone()` in Bioconductor to compare cancer vs normal cells in different stages of cell cycle
+
+
+## Load data
+Read in data 
+```{r load-data, message=FALSE, cache=TRUE, eval=FALSE}
+dat_counts <- readr::read_csv("data/0114P_RNAseq/BM_CD34/mycounts_2.csv",
+                              col_names = FALSE) # dat is 445.8 MB in size
+dat_counts <- t(dat_counts) # flip to make cells along columns
+
+dat_muts <- readr::read_csv(
+  "data/0114P_RNAseq/BM_CD34/mygroupings_threshold_NS_100_Rev2.csv", 
+  col_names = FALSE)
+dat_features <- readr::read_tsv(
+  "data/0114P_RNAseq/BM_CD34/features.tsv", 
+  col_names = FALSE)
+dat_barcodes <- readr::read_tsv(
+  "data/0114P_RNAseq/BM_CD34/barcodes_2.tsv", 
+  col_names = FALSE)
+```
+
+Create a `SingleCellExperiment` object
+```{r create-sce-object, message=FALSE, cache=TRUE, eval=FALSE}
+library(SingleCellExperiment)
+
+# row meta data 
+sce_rowData <- as.data.frame(dat_features[,1:2])
+colnames(sce_rowData) <- c("gene_name_ensembl", 
+                           "gene_name_symbol")
+rownames(sce_rowData) <- sce_rowData$gene_name_ensembl
+
+# column meta data 
+sce_colData <- data.frame("jak2_read_wt" = as.numeric(dat_muts[1, -1]), 
+                          "jak2_reads_cancer" = as.numeric(dat_muts[2, -1]))
+rownames(sce_colData) <- dat_barcodes$X1
+
+# counts matrix 
+rownames(dat_counts) <- sce_rowData$gene_name_ensembl
+colnames(dat_counts) <- dat_barcodes$X1
+
+sce <- SingleCellExperiment(assays = list(counts = dat_counts), 
+          rowData = sce_rowData, colData = sce_colData)
+```
+
+## Quality control 
+
+```{r scater-qc-basic, message=FALSE, cache=TRUE, eval=FALSE}
+library(scater)
+
+sce <- getBMFeatureAnnos(sce, 
+            ids = rownames(sce),
+            filters = "ensembl_gene_id", 
+            attributes = c("ensembl_gene_id", "hgnc_symbol",
+                           "chromosome_name", "gene_biotype",
+                           "start_position", "end_position"),
+            biomart = "ENSEMBL_MART_ENSEMBL", 
+            dataset = "hsapiens_gene_ensembl",
+            host = "www.ensembl.org")
+
+# separate information about mitochondrial genes
+rowData(sce)[grep("^MT-", rowData(sce)$gene_name_symbol),]
+isSpike(sce, "MT") <- grepl("^MT-", rowData(sce)$gene_name_symbol)
+
+# calculate QC metrics
+sce <- calculateQCMetrics(sce, 
+          feature_controls = list(MT = isSpike(sce, "MT")))
+
+# save SCE object
+saveRDS(sce, file = "data/0114P_RNAseq/BM_CD34/sce_0114.rds")
+```
+
+
+### Exploratory data analysis and QC on cells 
+
+```{r}
+library(SingleCellExperiment)
+library(scater)
+sce <- readRDS("data/0114P_RNAseq/BM_CD34/sce_0114.rds")
+```
+
+

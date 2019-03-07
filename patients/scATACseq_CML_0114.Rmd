@@ -1,5 +1,5 @@
 ---
-title: Analysis of scATAC-seq data from CML patient 0114 (Jan 14, 2019)
+title: Analysis of scATAC-seq data from CML patient 0114
 author: Yuchao Jiang
 output: 
     html_document:
@@ -19,24 +19,52 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Summary of patient data
 
-This is scRNA-seq (10X Genomics platform) data from a MPN patient 
-(denoted `0114` patient) from Jan 14, 2019. The data is available 
-on the JHPCE cluster and the following files are in the folder: 
+This is scATAC-seq (10X Genomics platform) data from a MPN patient 
+(denoted `0114` patient) from Jan 14, 2019. The following files are in the folder, which are used as input for [Destin](https://github.com/urrutiag/destin) : 
 
-- `barcodes_2.tsv`: barcode sequences of the detected cells.
-- `features.tsv`: names of the genes (columns of the count matrix)
-- `mycounts_2.csv`: count matrix (445.8 MB in size). The rows are the cells and the columns are the genes (6598 cells, 33694 genes). Each entry is the number of detected transcripts of a given gene in a given cell.
-- `mygroupings_threshold_NS_100_Rev2.csv`: contains the number of wild-type or cancer transcripts detected in each cell. The columns are the cells (same number as the rows of the count matrix). There are two rows. Row 1 is the number of WT Jak2 transcripts. Row 2 is the number of cancer Jak2 transcripts.
-
-The count matrix above is from our first sequencing run on this patient library. However, it has since been resequenced to increase depth by a factor of 3. This higher-depth data should be available by our meeting in Boston on March 8, 2019. 
-
+- `matrix.mtx`: peak by cell chromatin accessiblilty matrix in MatrixMarket format. We can use R package “Matrix” to read straight to a sparse matrix
+- `peaks.bed`:  bed file corresponding to rows of matrix.mtx
+- `barcodes.tsv`: barcodes corresponding to columns of matrix.mtx.
 
 
 
 ## Load data
-Read in data 
-```{r load-data, message=FALSE, cache=TRUE, eval=TRUE}
+Read in data and store as ranged summarized experiment (rse)
+```{r load-data, message=FALSE, cache=TRUE, eval=FALSE}
 library(destin)
 data10xDir='BM_CD34/filtered_peak_bc_matrix/'
 rse = createRSEfrom10xMatrix(data10xDir)
+colData(rse) # cells
+rowRanges(rse) # peaks
+assay(rse)[1:10,1:10]
+```
+
+## Annotate peaks
+```{r annotate, message=FALSE, cache=TRUE, eval=FALSE}
+model = "hg19"
+rse = annotateRSE(rse, model)
+```
+
+## Quality control
+```{r qc, message=FALSE, cache=TRUE, eval=FALSE}
+rse = doQC(rse, regionSumCutoff = 5, cellSumCutoffSDs = 3)
+```
+
+## Estimate number of clusters
+```{r estimate.cluster, message=FALSE, cache=TRUE, eval=FALSE}
+clusterEst = estimateNClusters(rse, nClustersRange = 2:20)
+nClusters = clusterEst$nClustersList$logLikeElbow
+plotNClusters(clusterEst)
+```
+
+## Cluster
+```{r cluster, message=FALSE, cache=TRUE, eval=FALSE}
+nCores = 3
+clusterResults = destinGrid (rse, nClusters = nClusters, nCores = nCores)
+clusterResults$cluster
+```
+
+## Plot clustering results
+```{r plot.cluster, message=FALSE, cache=TRUE, eval=FALSE}
+plotCluster(clusterResults)
 ```

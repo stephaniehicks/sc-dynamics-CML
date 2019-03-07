@@ -32,7 +32,12 @@ The count matrix above is from our first sequencing run on this patient library.
 
 ## Previous analyses reported by Sahand
 
-_We use SPRING, a dimensionality reduction tool that uses force-directed graph to plot the differentiation trajectories. SPRING has some criteria for selecting a subset of genes that are informative (for example fano factor and mean expression thresholds)._
+"We use SPRING, a dimensionality reduction 
+tool that uses force-directed graph to plot the
+differentiation trajectories. SPRING has some
+criteria for selecting a subset of genes that are 
+informative (for example fano factor and mean expression 
+thresholds)."
 
 # Biological question of interest
 
@@ -42,7 +47,13 @@ _We use SPRING, a dimensionality reduction tool that uses force-directed graph t
 
 # Data Analysis
 
-Immediate to-dos: 
+Questions for Sahand: 
+
+* How to call whether a cell is a mutant or wildtype based on number of reads? 
+* Would expect cells that have at least 1 wildtype or mutant read to have more 
+UMI counts or more genes expressed? 
+
+To-dos: 
 
 * identify doublets, empty cells, and and apply normalization
 * Use `scran::cyclone()` in Bioconductor to compare cancer vs normal cells in different stages of cell cycle
@@ -77,7 +88,7 @@ colnames(sce_rowData) <- c("gene_name_ensembl",
 rownames(sce_rowData) <- sce_rowData$gene_name_ensembl
 
 # column meta data 
-sce_colData <- data.frame("jak2_read_wt" = as.numeric(dat_muts[1, -1]), 
+sce_colData <- data.frame("jak2_reads_wt" = as.numeric(dat_muts[1, -1]), 
                           "jak2_reads_cancer" = as.numeric(dat_muts[2, -1]))
 rownames(sce_colData) <- dat_barcodes$X1
 
@@ -109,20 +120,109 @@ rowData(sce)[grep("^MT-", rowData(sce)$gene_name_symbol),]
 isSpike(sce, "MT") <- grepl("^MT-", rowData(sce)$gene_name_symbol)
 
 # calculate QC metrics
-sce <- calculateQCMetrics(sce, 
-          feature_controls = list(MT = isSpike(sce, "MT")))
+sce <- calculateQCMetrics(sce)
 
 # save SCE object
 saveRDS(sce, file = "data/0114P_RNAseq/BM_CD34/sce_0114.rds")
 ```
 
 
-### Exploratory data analysis and QC on cells 
+### Exploratory data analysis on cells 
 
 ```{r}
 library(SingleCellExperiment)
 library(scater)
 sce <- readRDS("data/0114P_RNAseq/BM_CD34/sce_0114.rds")
+```
+
+
+Histogram of library sizes and number 
+of expressed genes.
+```{r}
+par(mfrow=c(1,2))
+hist(sce$total_counts/1e4, xlab="Library sizes (thousands)", main="",
+     breaks=20, col="grey80", ylab="Number of cells")
+hist(sce$total_features_by_counts, xlab="Number of expressed genes", main="",
+     breaks=20, col="grey80", ylab="Number of cells")
+```
+
+Here is a table of the number of wild-type or cancer transcripts
+detected in each cell covering Jak2. There are e.g. 11 cells that 
+both have 1 read from the wildtype and cancer transcripts. Not sure 
+how to handle those situations? 
+```{r}
+table(sce$jak2_reads_cancer, sce$jak2_reads_wt)
+```
+
+For now let's just assume if you have at least one cancer read 
+covering Jak2, it is called a mutation. 
+
+```{r}
+sce$cancer_status <- ifelse(
+  (sce$jak2_reads_cancer > 0 & sce$jak2_reads_wt < 1), "mut", 
+  ifelse((sce$jak2_reads_cancer < 1 & sce$jak2_reads_wt > 0), "wt", "unknown" ))
+sce$cancer_status <- factor(sce$cancer_status, levels=c("wt", "mut", "unknown"))
+```
+
+Let's look at the distribution of total counts and number 
+of expressed genes when stratify by the number of cancer 
+reads or wild type reads. Also what happens when you stratify 
+by cancer status
+
+```{r}
+par(mfrow=c(2,3))
+boxplot(sce$total_counts ~ sce$jak2_reads_cancer, log="y", 
+        main = "jak2_reads_cancer", ylab = "total_counts" )
+boxplot(sce$total_counts ~ sce$jak2_reads_wt, log="y", 
+        main = "jak2_read_wt", ylab = "total_counts")
+boxplot(sce$total_counts ~ sce$cancer_status, log="y", 
+        main = "cancer_status", ylab = "total_counts")
+
+boxplot(sce$total_features_by_counts ~ sce$jak2_reads_cancer, log="y", 
+        main = "jak2_reads_cancer", ylab = "total_features_by_counts" )
+boxplot(sce$total_features_by_counts ~ sce$jak2_reads_wt, log="y", 
+        main = "jak2_read_wt", ylab = "total_features_by_counts")
+boxplot(sce$total_features_by_counts ~ sce$cancer_status, log="y", 
+        main = "cancer_status", ylab = "total_features_by_counts")
+```
+
+We should also look at the percent of reads mapping to MT genes, 
+which could be evidence that we should exclude these cells
+
+```{r}
+par(mfrow=c(1,1))
+boxplot(sce$pct_counts_MT ~ sce$cancer_status, ylim = c(0, 50), 
+        ylab = "pct_counts_MT", main = "cancer_status")
+```
+There are definitely cells that have much higher pct MT
+in the unknown cancer status group. 
+
+
+### Remove low-quality cells 
+
+We remove cells with log-library sizes that are more than 
+3 median absolute deviations (MADs) below the median 
+log-library size. (A log-transformation improves resolution 
+at small values, especially when the MAD of the raw values 
+is comparable to or greater than the median). Next, we 
+remove cells where the log-transformed number of expressed 
+genes is 3 MADs below the median. Then, we remove cells 
+with percent mitochondria 3 MADs above the median. 
+
+```{r}
+libsize.drop <- isOutlier(sce$total_counts, nmads=3, type="lower", log=TRUE)
+feature.drop <- isOutlier(sce$total_features_by_counts, nmads=3, type="lower", log=TRUE)
+MT.drop <- isOutlier(sce$pct_counts_MT, nmads=3, type="higher", log=TRUE)
+
+table(libsize.drop) 
+table(feature.drop, MT.drop)
+
+sce <- sce[,!(libsize.drop | feature.drop | MT.drop)]
+
+# sanity check
+par(mfrow=c(1,1))
+plot(sce$total_features_by_counts, sce$pct_counts_MT)
+
 ```
 
 

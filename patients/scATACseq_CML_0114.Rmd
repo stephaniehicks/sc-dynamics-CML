@@ -46,11 +46,19 @@ rse = annotateRSE(rse, model)
 ```
 
 ## Quality control
+
+Destin begins with quality control, retaining chromatin regions accessible in at least 5 cells, and retaining cells with total number of chromatin accessible regions within 3 standard deviations from median (robustly calculated using median absolute deviations). These default parameters can be modified if desired.
+
 ```{r qc, message=FALSE, cache=TRUE, eval=FALSE}
+Matrix::rowSums(assay(rse))
+Matrix::colSums(assay(rse))
 rse = doQC(rse, regionSumCutoff = 5, cellSumCutoffSDs = 3)
 ```
 
 ## Estimate number of clusters
+
+Destin uses an unsupervised model-based likelihood (logLikeElbow) to estimate number of clusters. Like WCSSE, the likelihood is non-decreasing with increasing number of clusters. We fit the model log-likelihood as a linear spline function of number of clusters with a single knot. The knot placement which results in the best fit (lowest sum of squared errors) is selected as number of clusters (n_k).
+
 ```{r estimate.cluster, message=FALSE, cache=TRUE, eval=FALSE}
 clusterEst = estimateNClusters(rse, nClustersRange = 2:20)
 nClusters = clusterEst$nClustersList$logLikeElbow
@@ -65,6 +73,9 @@ clusterResults$cluster
 ```
 
 ## Plot clustering results
+Visualization by PCA and tSNE
 ```{r plot.cluster, message=FALSE, cache=TRUE, eval=FALSE}
-plotCluster(clusterResults)
+par(mfrow=c(1,2))
+plotCluster(clusterResults, type = 'PCA')
+plotCluster(clusterResults, type = "t-SNE")
 ```

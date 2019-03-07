@@ -1,0 +1,42 @@
+---
+title: Analysis of scATAC-seq data from CML patient 0114 (Jan 14, 2019)
+author: Yuchao Jiang
+output: 
+    html_document:
+        theme: cosmo 
+        toc: true
+        toc_float: true
+        highlight: tango
+        number_sections: false
+fig_width: 5
+fig_height: 5 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Summary of patient data
+
+This is scRNA-seq (10X Genomics platform) data from a MPN patient 
+(denoted `0114` patient) from Jan 14, 2019. The data is available 
+on the JHPCE cluster and the following files are in the folder: 
+
+- `barcodes_2.tsv`: barcode sequences of the detected cells.
+- `features.tsv`: names of the genes (columns of the count matrix)
+- `mycounts_2.csv`: count matrix (445.8 MB in size). The rows are the cells and the columns are the genes (6598 cells, 33694 genes). Each entry is the number of detected transcripts of a given gene in a given cell.
+- `mygroupings_threshold_NS_100_Rev2.csv`: contains the number of wild-type or cancer transcripts detected in each cell. The columns are the cells (same number as the rows of the count matrix). There are two rows. Row 1 is the number of WT Jak2 transcripts. Row 2 is the number of cancer Jak2 transcripts.
+
+The count matrix above is from our first sequencing run on this patient library. However, it has since been resequenced to increase depth by a factor of 3. This higher-depth data should be available by our meeting in Boston on March 8, 2019. 
+
+
+
+
+## Load data
+Read in data 
+```{r load-data, message=FALSE, cache=TRUE, eval=TRUE}
+library(destin)
+data10xDir='BM_CD34/filtered_peak_bc_matrix/'
+rse = createRSEfrom10xMatrix(data10xDir)
+```

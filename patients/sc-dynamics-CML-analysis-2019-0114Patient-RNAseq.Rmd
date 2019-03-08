@@ -214,15 +214,249 @@ libsize.drop <- isOutlier(sce$total_counts, nmads=3, type="lower", log=TRUE)
 feature.drop <- isOutlier(sce$total_features_by_counts, nmads=3, type="lower", log=TRUE)
 MT.drop <- isOutlier(sce$pct_counts_MT, nmads=3, type="higher", log=TRUE)
 
-table(libsize.drop) 
-table(feature.drop, MT.drop)
+data.frame(ByLibSize=sum(libsize.drop), ByFeature=sum(feature.drop), 
+    BySpike=sum(MT.drop), Remaining=ncol(sce))
 
 sce <- sce[,!(libsize.drop | feature.drop | MT.drop)]
 
 # sanity check
 par(mfrow=c(1,1))
 plot(sce$total_features_by_counts, sce$pct_counts_MT)
-
 ```
 
+### Classification of cell cycle phase
+
+We use the prediction method described by Scialdone 
+et al. (2015) to classify cells into cell cycle phases 
+based on the gene expression data. Using a training dataset, 
+the sign of the difference in expression between two genes 
+was computed for each pair of genes. Pairs with changes in the 
+sign across cell cycle phases were chosen as markers. Cells in 
+a test dataset can then be classified into the appropriate 
+phase, based on whether the observed sign for each marker pair 
+is consistent with one phase or another.
+
+This approach is implemented in the cyclone function from the 
+scran package. The package contains a pre-trained set of marker 
+pairs for mouse and human data, which we can load in the the 
+`readRDS()` function. We use the Ensembl identifiers for each 
+gene in our dataset to match up with the names in the pre-trained 
+set of gene pairs.
+
+Then, this can take a while to run. 
+```{r, eval=FALSE}
+library(scran)
+human.pairs <- readRDS(system.file("exdata", "human_cycle_markers.rds", package="scran"))
+assigned <- cyclone(sce, pairs=human.pairs, gene.names=rowData(sce)$ensembl_gene_id)
+```
+
+The cyclone result for each cell in the dataset is shown above. 
+Each cell is assigned a score for each phase, with a higher score 
+corresponding to a higher probability that the cell is in that 
+phase. We focus on the G1 and G2/M scores as these are the 
+most informative for classification.
+
+Cells are classified as being in G1 phase if the G1 score 
+is above 0.5 and greater than the G2/M score; in G2/M phase 
+if the G2/M score is above 0.5 and greater than the G1 score; 
+and in S phase if neither score is above 0.5. We save these 
+assignments into the `SingleCellExperiment` object for later use.
+
+```{r, eval=FALSE}
+sce$phases <- assigned$phases
+sce$cellcycle_score_G1 <- assigned$score$G1
+sce$cellcycle_score_G2M <- assigned$score$G2M
+sce$cellcycle_score_S <- assigned$score$S
+sce$cellcycle_score_normalized_G1 <- assigned$normalized.scores$G1
+sce$cellcycle_score_normalized_G2M <- assigned$normalized.scores$G2M
+sce$cellcycle_score_normalized_S <- assigned$normalized.scores$S
+
+saveRDS(sce, file = "data/0114P_RNAseq/BM_CD34/sce_qc_0114.rds")
+```
+
+We can plot the cell cycle scores for 
+G1 and G2M phases. 
+
+```{r}
+library(SingleCellExperiment)
+library(scater)
+
+sce <- readRDS("data/0114P_RNAseq/BM_CD34/sce_qc_0114.rds")
+plot(sce$cellcycle_score_G1, sce$cellcycle_score_G2M, 
+    xlab="G1 score", ylab="G2/M score", pch=16)
+
+plot(sce$cellcycle_score_normalized_G1, sce$cellcycle_score_normalized_G2M, 
+    xlab="G1 score", ylab="G2/M score", pch=16)
+```
+
+```{r}
+library(tidyverse)
+library(cowplot)
+
+p1 <- as.data.frame(colData(sce)) %>% 
+  ggplot(aes(x=cellcycle_score_G1, y=cellcycle_score_G2M, 
+             color = cancer_status)) +
+  geom_point()
+
+p2 <- as.data.frame(colData(sce)) %>% 
+  ggplot(aes(x=cellcycle_score_G1, y=cellcycle_score_G2M, 
+             color = phases)) + 
+  geom_point()
+
+pdf("figures/2019-03-07-cell-cycle.pdf", width=12,height=4)
+plot_grid(p1, p2, ncol=2, labels = LETTERS[1:2])
+dev.off()
+```
+
+We can calculate the absolute numbers and the 
+proportion of cells in each cell cycle phase 
+```{r}
+table(sce$phases)
+
+x <- table(factor(sce$cancer_status[sce$cancer_status != "unknown"]), 
+      sce$phases[sce$cancer_status != "unknown"]) 
+x
+
+round(x / rowSums(x), 3)
+chisq.test(x) 
+```
+
+We see the p-value is 0.002513, which is statistically
+signicant at the $\alpha$=0.05 level. 
+
+**Note**: We do not filter out low-abundance genes before 
+applying cyclone. Even if a gene is not expressed in any cell, 
+it may still be useful for classification if it is phase-specific. 
+Its lack of expression relative to other genes will still yield 
+informatived pairs, and filtering them out would reduce power.
+
+
+## EDA and QC on the genes
+
+Next we want to filter out low abundance 
+genes. 
+```{r}
+library(SingleCellExperiment)
+library(scater)
+
+sce <- readRDS("data/0114P_RNAseq/BM_CD34/sce_qc_0114.rds")
+sce
+```
+
+First let's look at which genes are the most highly expressed
+```{r}
+fontsize <- theme(axis.text=element_text(size=12), 
+                  axis.title=element_text(size=16))
+
+plotHighestExprs(sce, n=25, 
+                 feature_names_to_plot = "gene_name_symbol") + 
+  fontsize
+```
+
+We will consider the average count for each gene, 
+computed across all cells in the dataset. We calculate
+this using the `calcAverage()` function, which also 
+performs some adjustment for library size differences 
+between cells. 
+
+```{r}
+# Remove genes not greater than a certain threshold in avg expression
+ave.counts <- calcAverage(sce, use_size_factors=FALSE)
+hist(log10(ave.counts), breaks=100, main="", col="grey80", 
+    xlab=expression(Log[10]~"average count"))
+```
+We see a lot of genes are really lowly expressed! 
+
+We can also look at genes expressed in at least $N$ cells. 
+This is closely related to the average count for most genes, 
+as expression in many cells will result in a higher average. 
+Genes expressed in very few cells are often uninteresting as 
+they are driven by amplification artifacts (though they may 
+also also arise from rare populations). We could then remove 
+genes that are expressed in fewer than $N$ cells.
+```{r}
+num.cells <- nexprs(sce, byrow=TRUE)
+smoothScatter(log10(ave.counts), num.cells, ylab="Number of cells", 
+    xlab=expression(Log[10]~"average count"))
+```
+
+This plot suggestions we should consider removing genes 
+with a min average gene expression of 0.01 
+(or -2 on `log10` scale). We also remove genes without 
+expression in at least 1 cell. Finally, I needed to 
+remove a cell that had zero reads in the MT genes
+which will cause trouble for normalization if not
+addressed here. 
+```{r}
+keep_feature <- (num.cells > 1) & (log10(ave.counts) > -3)
+keep_cell_MT <- !(colSums(counts(sce[isSpike(sce), ])) == 0)
+table(keep_feature)
+table(keep_cell_MT)
+
+sce_norm <- sce[keep_feature, keep_cell_MT]
+sce_norm
+```
+
+
+## Normalization
+
+We compute size factors for the endogenous genes 
+using the deconvolution method (Lun, Bach, and Marioni 2016).
+This is done with pre-clustering through `quickCluster()`
+to avoid pooling together very different cells.
+
+```{r, eval=FALSE}
+library(scran)
+set.seed(1000)    
+clusters <- quickCluster(sce_norm, method="igraph", min.mean=0.01)
+table(clusters)
+
+sce_norm <- computeSumFactors(sce_norm, min.mean=0.01, clusters=clusters)
+summary(sizeFactors(sce_norm))
+```
+
+Let's look at what the size factors look like
+```{r}
+plot(sizeFactors(sce_norm), sce_norm$total_counts/1e3, log="xy",
+    ylab="Library size (thousands)", xlab="Size factor")
+```
+
+```{r}
+sce_norm <- computeSpikeFactors(sce_norm, type="MT", general.use=FALSE)
+```
+
+
+Finally, normalized log-expression values are computed for
+each endogenous gene or spike-in transcript using the
+appropriate size factors.
+
+```{r}
+sce_norm <- normalize(sce_norm)
+saveRDS(sce_norm, file = "data/0114P_RNAseq/BM_CD34/sce_norm_0114.rds")
+```
+
+
+
+
+## Filter for highly variable genes
+
+```{r}
+library(SingleCellExperiment)
+library(scater)
+library(scran)
+
+sce_norm <- readRDS("data/0114P_RNAseq/BM_CD34/sce_norm_0114.rds")
+```
+
+```{r}
+num.cells <- nexprs(sce_norm, byrow=TRUE)
+keep_feature <- (num.cells > 5) 
+
+sce2 <- sce_norm[keep_feature,]
+
+var.fit <- trendVar(sce2, method = "spline", 
+                    parametric=TRUE, weighted = FALSE)#,
+                    #loess.args=list(span=0.5))
+
+```
 

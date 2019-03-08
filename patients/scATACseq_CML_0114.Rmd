@@ -41,13 +41,14 @@ assay(rse)[1:10,1:10]
 
 ## Annotate peaks
 ```{r annotate, message=FALSE, cache=TRUE, eval=FALSE}
-model = "hg19"
+model = "hg38"
 rse = annotateRSE(rse, model)
+rse@rowRanges
 ```
 
 ## Quality control
 
-Destin begins with quality control, retaining chromatin regions accessible in at least 5 cells, and retaining cells with total number of chromatin accessible regions within 3 standard deviations from median (robustly calculated using median absolute deviations). These default parameters can be modified if desired.
+Destin begins with quality control, retaining chromatin regions accessible in at least 5 cells, and retaining cells with log total number of chromatin accessible regions within 3 standard deviations from median (robustly calculated using median absolute deviations). These default parameters can be modified if desired.
 
 ```{r qc, message=FALSE, cache=TRUE, eval=FALSE}
 Matrix::rowSums(assay(rse))
@@ -69,13 +70,13 @@ plotNClusters(clusterEst)
 ```{r cluster, message=FALSE, cache=TRUE, eval=FALSE}
 nCores = 3
 clusterResults = destinGrid (rse, nClusters = nClusters, nCores = nCores)
-clusterResults$cluster
+table(clusterResults$cluster)
 ```
 
 ## Plot clustering results
 Visualization by PCA and tSNE
 ```{r plot.cluster, message=FALSE, cache=TRUE, eval=FALSE}
-par(mfrow=c(1,2))
+set.seed(1)
 plotCluster(clusterResults, type = 'PCA')
 plotCluster(clusterResults, type = "t-SNE")
 ```

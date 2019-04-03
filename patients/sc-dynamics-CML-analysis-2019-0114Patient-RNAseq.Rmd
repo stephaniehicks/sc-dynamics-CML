@@ -551,10 +551,161 @@ plotUMAP(sce_sub, colour_by="MPO") + ggtitle("umap (MPO)") # G
 plotUMAP(sce_sub, colour_by="ELANE") + ggtitle("umap (Elane)") # G
 ```
 
+# slingshot 
+
+The minimal input to `slingshot` is a matrix representing the 
+cells in a reduced-dimensional space and a vector of cluster labels.
+
+With these two inputs, we then:
+
+1. Identify the global lineage structure by constructing an minimum spanning tree (MST) on the clusters, with the `getLineages()` function.
+2. Construct smooth lineages and infer pseudotime variables by fitting simultaneous principal curves with the `getCurves()` function.
+3. Assess the output of each step with built-in visualization tools.
+
+Firs, we use the reduced dims from `umap`. 
+```{r}
+rd <- reducedDim(sce_sub, "UMAP")
+```
+
+For cluster labels, 
+```{r}
+k.max <- 15
+data <- rd
+wss <- sapply(1:k.max, 
+              function(k){kmeans(data, k, nstart=50,iter.max = 15 )$tot.withinss})
+wss
+
+plot(1:k.max, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of clusters K", main = "Elbow plot",
+     ylab="Total within-clusters sum of squares")
+```
+
+So let's go with 8? 
+```{r}
+k_out <- kmeans(rd, centers = 10)
+plot(rd, col = k_out$cluster)
+
+sce_sub$cluster_labels <- k_out$cluster
+```
+
+To run slingshot with the dimensionality reduction produced by PCA and cluster labels identified by Gaussian mixutre modeling, we would do the following:
+
+```{r}
+library(slingshot)
+library(RColorBrewer)
+sce_sub <- slingshot(sce_sub, clusterLabels = 'cluster_labels', reducedDim = 'UMAP')
+```
+
+```{r}
+summary(sce_sub$slingPseudotime_1)
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plot(reducedDims(sce_sub)$UMAP, col = colors[cut(sce_sub$slingPseudotime_1,breaks=100)], pch=16, asp = 1)
+lines(SlingshotDataSet(sce_sub), lwd=2)
+```
+
+We can also see how the lineage structure was intially estimated by the cluster-based minimum spanning tree by using the type argument.
+
+```{r}
+plot(reducedDims(sce_sub)$UMAP, col = brewer.pal(8,'Set1')[sce_sub$cluster_labels], pch=16, asp = 1)
+lines(SlingshotDataSet(sce_sub), lwd=2, type = 'lineages')
+```
+
+## Identifying temporally expressed genes using `slingshot`
+
+After running `slingshot`, here, we find genes that change 
+their expression over the course of development. We use the 
+1000 most variable genes.
+
+We will regress each gene on the pseudotime variable we
+have generated, using a general additive model (GAM). This
+allows us to detect non-linear patterns in gene expression.
+
+```{r}
+require(gam)
+t <- sce_sub$slingPseudotime_1
+
+# for time, only look at the 1,000 most variable genes
+Y <- assays(sce_sub[1:100,])$logcounts
+
+# fit a GAM with a loess term for pseudotime
+gam.pval <- apply(Y,1,function(z){
+  d <- data.frame(z=z, t=t)
+  tmp <- gam(z ~ lo(t), data=d)
+  p <- summary(tmp)[4][[1]][1,5]
+  p
+})
+```
+
+We can then pick out the top genes based on p-value and visualize their expression over developmental time with a heatmap.
+
+```{r}
+require(clusterExperiment)
+
+topgenes <- names(sort(gam.pval, decreasing = FALSE))[1:50]
+heatdata <- logcounts(sce_sub)[rownames(logcounts(sce_sub)) %in% topgenes, 
+                        order(t, na.last = NA)]
+heatclus <- sce_sub$cluster_labels[order(t, na.last = NA)]
+ce <- ClusterExperiment(heatdata, heatclus, transformation = log1p)
+```
+
+```{r, eval=FALSE}
+pdf("figures/2019-04-02-slingshot-heatmap.pdf", width=12,height=4)
+  plotHeatmap(ce, clusterSamplesData = "orderSamplesValue", visualizeData = 'transformed')
+dev.off()
+```
+
+```{r}
+p1 <- plotUMAP(sce_sub, colour_by=topgenes[1]) + ggtitle("umap")
+p1
+
+p2 <- plotUMAP(sce_sub, colour_by=topgenes[2]) + ggtitle("umap")
+p2
+
+p3 <- plotUMAP(sce_sub, colour_by=topgenes[3]) + ggtitle("umap")
+p3
+
+p4 <- plotUMAP(sce_sub, colour_by=topgenes[4]) + ggtitle("umap")
+p4
+
+p5 <- plotUMAP(sce_sub, colour_by=topgenes[5]) + ggtitle("umap")
+p5
+```
+
+```{r, eval=FALSE}
+p6 <- plotUMAP(sce_sub, colour_by=topgenes[6]) + ggtitle("umap")
+p7 <- plotUMAP(sce_sub, colour_by=topgenes[7]) + ggtitle("umap")
+p8 <- plotUMAP(sce_sub, colour_by=topgenes[8]) + ggtitle("umap")
+p9 <- plotUMAP(sce_sub, colour_by=topgenes[9]) + ggtitle("umap")
+p10 <- plotUMAP(sce_sub, colour_by=topgenes[10]) + ggtitle("umap")
+p11 <- plotUMAP(sce_sub, colour_by=topgenes[11]) + ggtitle("umap")
+p12 <- plotUMAP(sce_sub, colour_by=topgenes[12]) + ggtitle("umap")
+p13 <- plotUMAP(sce_sub, colour_by=topgenes[13]) + ggtitle("umap")
+p14 <- plotUMAP(sce_sub, colour_by=topgenes[14]) + ggtitle("umap")
+p15 <- plotUMAP(sce_sub, colour_by=topgenes[15]) + ggtitle("umap")
+p16 <- plotUMAP(sce_sub, colour_by=topgenes[16]) + ggtitle("umap")
+p17 <- plotUMAP(sce_sub, colour_by=topgenes[17]) + ggtitle("umap")
+p18 <- plotUMAP(sce_sub, colour_by=topgenes[18]) + ggtitle("umap")
+p19 <- plotUMAP(sce_sub, colour_by=topgenes[19]) + ggtitle("umap")
+p20 <- plotUMAP(sce_sub, colour_by=topgenes[20]) + ggtitle("umap")
+
+fig <- cowplot::plot_grid(p1, p2,  p3, p4, p5, p6, p7, p8, p9, p10, 
+                          p11, p12, p13, p14, p15, p16, p17, p18, p19, p20,
+                          ncol = 5)
+
+pdf("figures/2019-04-02-slingshot-hvg.pdf", width=25,height=20)
+print(fig)
+dev.off()
+```
+
+
+
 
 # monocle
 
-```{r}
+Work in progress... 
+
+```{r, eval=FALSE}
 library(monocle)
       
 # Converting the exprs data in log scale back to original scale

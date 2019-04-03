@@ -47,12 +47,6 @@ thresholds)."
 
 # Data Analysis
 
-Questions for Sahand: 
-
-* How to call whether a cell is a mutant or wildtype based on number of reads? 
-* Would expect cells that have at least 1 wildtype or mutant read to have more 
-UMI counts or more genes expressed? 
-
 To-dos: 
 
 * identify doublets, empty cells, and and apply normalization
@@ -148,28 +142,29 @@ hist(sce$total_features_by_counts, xlab="Number of expressed genes", main="",
 
 Here is a table of the number of wild-type or cancer transcripts
 detected in each cell covering Jak2. There are e.g. 11 cells that 
-both have 1 read from the wildtype and cancer transcripts. Not sure 
-how to handle those situations? 
+both have 1 read from the wildtype and cancer transcripts. 
+
 ```{r}
 table(sce$jak2_reads_cancer, sce$jak2_reads_wt)
 ```
 
-For now let's just assume if you have at least one cancer read 
-covering Jak2, it is called a mutation. 
+Following up with Sahand from our March 8 jam session in Boston, 
+we assume that if we see at least one mutant/cancer read covering 
+Jak2, then we call it a cancer cell.  
 
 ```{r}
-sce$cancer_status <- ifelse(
-  (sce$jak2_reads_cancer > 0 & sce$jak2_reads_wt < 1), "mut", 
+sce$cancer_status <- ifelse(sce$jak2_reads_cancer > 0, "mut", 
   ifelse((sce$jak2_reads_cancer < 1 & sce$jak2_reads_wt > 0), "wt", "unknown" ))
 sce$cancer_status <- factor(sce$cancer_status, levels=c("wt", "mut", "unknown"))
+table(sce$cancer_status)
 ```
 
 Let's look at the distribution of total counts and number 
-of expressed genes when stratify by the number of cancer 
+of expressed genes when we stratify by the number of cancer 
 reads or wild type reads. Also what happens when you stratify 
 by cancer status
 
-```{r}
+```{r, fig.height=8, fig.width=12}
 par(mfrow=c(2,3))
 boxplot(sce$total_counts ~ sce$jak2_reads_cancer, log="y", 
         main = "jak2_reads_cancer", ylab = "total_counts" )
@@ -189,13 +184,15 @@ boxplot(sce$total_features_by_counts ~ sce$cancer_status, log="y",
 We should also look at the percent of reads mapping to MT genes, 
 which could be evidence that we should exclude these cells
 
-```{r}
-par(mfrow=c(1,1))
+```{r, fig.width=8}
+par(mfrow=c(1,2))
 boxplot(sce$pct_counts_MT ~ sce$cancer_status, ylim = c(0, 50), 
         ylab = "pct_counts_MT", main = "cancer_status")
+plot(sce$total_features_by_counts, sce$pct_counts_MT)
 ```
+
 There are definitely cells that have much higher pct MT
-in the unknown cancer status group. 
+in the `unknown` cancer status group. 
 
 
 ### Remove low-quality cells 
@@ -207,7 +204,7 @@ at small values, especially when the MAD of the raw values
 is comparable to or greater than the median). Next, we 
 remove cells where the log-transformed number of expressed 
 genes is 3 MADs below the median. Then, we remove cells 
-with percent mitochondria 3 MADs above the median. 
+with percent MT 3 MADs above the median. 
 
 ```{r}
 libsize.drop <- isOutlier(sce$total_counts, nmads=3, type="lower", log=TRUE)
@@ -277,11 +274,13 @@ saveRDS(sce, file = "data/0114P_RNAseq/BM_CD34/sce_qc_0114.rds")
 We can plot the cell cycle scores for 
 G1 and G2M phases. 
 
-```{r}
+```{r, fig.width=8}
 library(SingleCellExperiment)
 library(scater)
 
 sce <- readRDS("data/0114P_RNAseq/BM_CD34/sce_qc_0114.rds")
+
+par(mfrow=c(1,2))
 plot(sce$cellcycle_score_G1, sce$cellcycle_score_G2M, 
     xlab="G1 score", ylab="G2/M score", pch=16)
 
@@ -303,6 +302,11 @@ p2 <- as.data.frame(colData(sce)) %>%
              color = phases)) + 
   geom_point()
 
+plot_grid(p1, p2, ncol=2, labels = LETTERS[1:2])
+```
+
+Let's save this figure.
+```{r}
 pdf("figures/2019-03-07-cell-cycle.pdf", width=12,height=4)
 plot_grid(p1, p2, ncol=2, labels = LETTERS[1:2])
 dev.off()
@@ -321,7 +325,7 @@ round(x / rowSums(x), 3)
 chisq.test(x) 
 ```
 
-We see the p-value is 0.002513, which is statistically
+We see the p-value is `r round(chisq.test(x)$p.value, 5)`, which is statistically
 signicant at the $\alpha$=0.05 level. 
 
 **Note**: We do not filter out low-abundance genes before 
@@ -334,16 +338,9 @@ informatived pairs, and filtering them out would reduce power.
 ## EDA and QC on the genes
 
 Next we want to filter out low abundance 
-genes. 
-```{r}
-library(SingleCellExperiment)
-library(scater)
+genes. First let's look at which genes are the
+most highly expressed
 
-sce <- readRDS("data/0114P_RNAseq/BM_CD34/sce_qc_0114.rds")
-sce
-```
-
-First let's look at which genes are the most highly expressed
 ```{r}
 fontsize <- theme(axis.text=element_text(size=12), 
                   axis.title=element_text(size=16))
@@ -361,10 +358,12 @@ between cells.
 
 ```{r}
 # Remove genes not greater than a certain threshold in avg expression
+par(mfrow=c(1,1))
 ave.counts <- calcAverage(sce, use_size_factors=FALSE)
 hist(log10(ave.counts), breaks=100, main="", col="grey80", 
     xlab=expression(Log[10]~"average count"))
 ```
+
 We see a lot of genes are really lowly expressed! 
 
 We can also look at genes expressed in at least $N$ cells. 
@@ -374,6 +373,7 @@ Genes expressed in very few cells are often uninteresting as
 they are driven by amplification artifacts (though they may 
 also also arise from rare populations). We could then remove 
 genes that are expressed in fewer than $N$ cells.
+
 ```{r}
 num.cells <- nexprs(sce, byrow=TRUE)
 smoothScatter(log10(ave.counts), num.cells, ylab="Number of cells", 
@@ -382,7 +382,7 @@ smoothScatter(log10(ave.counts), num.cells, ylab="Number of cells",
 
 This plot suggestions we should consider removing genes 
 with a min average gene expression of 0.01 
-(or -2 on `log10` scale). We also remove genes without 
+(or -3 or -2 on `log10` scale). We also remove genes without 
 expression in at least 1 cell. Finally, I needed to 
 remove a cell that had zero reads in the MT genes
 which will cause trouble for normalization if not
@@ -407,7 +407,8 @@ to avoid pooling together very different cells.
 
 ```{r, eval=FALSE}
 library(scran)
-set.seed(1000)    
+set.seed(1000)
+
 clusters <- quickCluster(sce_norm, method="igraph", min.mean=0.01)
 table(clusters)
 
@@ -415,48 +416,187 @@ sce_norm <- computeSumFactors(sce_norm, min.mean=0.01, clusters=clusters)
 summary(sizeFactors(sce_norm))
 ```
 
-Let's look at what the size factors look like
-```{r}
-plot(sizeFactors(sce_norm), sce_norm$total_counts/1e3, log="xy",
-    ylab="Library size (thousands)", xlab="Size factor")
-```
-
-```{r}
+```{r, eval=FALSE}
 sce_norm <- computeSpikeFactors(sce_norm, type="MT", general.use=FALSE)
 ```
-
 
 Finally, normalized log-expression values are computed for
 each endogenous gene or spike-in transcript using the
 appropriate size factors.
 
-```{r}
+```{r, eval=FALSE}
 sce_norm <- normalize(sce_norm)
 saveRDS(sce_norm, file = "data/0114P_RNAseq/BM_CD34/sce_norm_0114.rds")
 ```
 
+Let's look at what the size factors look like
+```{r}
+sce_norm <- readRDS("data/0114P_RNAseq/BM_CD34/sce_norm_0114.rds")
 
-
+plot(sizeFactors(sce_norm), sce_norm$total_counts/1e3, log="xy",
+    ylab="Library size (thousands)", xlab="Size factor")
+```
 
 ## Filter for highly variable genes
 
 ```{r}
-library(SingleCellExperiment)
-library(scater)
 library(scran)
-
-sce_norm <- readRDS("data/0114P_RNAseq/BM_CD34/sce_norm_0114.rds")
+keep_cell_MT <- (colSums(counts(sce_norm[isSpike(sce_norm), ])) >1)
+sce_norm <- sce_norm[, keep_cell_MT]
+sce_norm
 ```
 
 ```{r}
-num.cells <- nexprs(sce_norm, byrow=TRUE)
-keep_feature <- (num.cells > 5) 
+var.fit <- trendVar(sce_norm, parametric=FALSE)
+var.out <- decomposeVar(sce_norm, var.fit)
+var.out$gene_name_symbol <- rowData(sce_norm)$gene_name_symbol
+plot(var.out$mean, var.out$total, pch=16, cex=0.6, xlab="Mean log-expression", 
+    ylab="Variance of log-expression")
+curve(var.fit$trend(x), col="dodgerblue", lwd=2, add=TRUE)
+cur.spike <- isSpike(sce_norm)
+points(var.out$mean[cur.spike], var.out$total[cur.spike], col="red", pch=16)
+```
 
-sce2 <- sce_norm[keep_feature,]
+We define HVGs as those genes that have a biological component 
+that is significantly greater than zero. We use a false discovery 
+rate (FDR) of 5% after correcting for multiple testing with 
+the Benjamini-Hochberg method.
 
-var.fit <- trendVar(sce2, method = "spline", 
-                    parametric=TRUE, weighted = FALSE)#,
-                    #loess.args=list(span=0.5))
+```{r}
+hvg.out <- var.out[which(var.out$FDR <= 0.05),]
+nrow(hvg.out)
+```
+
+We rank the results to focus on genes with larger biological 
+components. This highlights an interesting aspect of the underlying 
+hypothesis test, which is based on the ratio of the total variance 
+to the expected technical variance. Ranking based on p-value tends 
+to prioritize HVGs that are more likely to be true positives but, 
+at the same time, less likely to be interesting. This is because 
+the ratio can be very large for HVGs that have very low total 
+variance and do not contribute much to the cell-cell heterogeneity.
+```{r}
+hvg.out <- hvg.out[order(hvg.out$bio, decreasing=TRUE),] 
+head(hvg.out)
+
+fontsize <- theme(axis.text=element_text(size=12), 
+                  axis.title=element_text(size=16))
+plotExpression(sce_norm, features = rownames(hvg.out)[1:4], 
+               x = "cancer_status") + fontsize
+
+# remove MT genes for downstream analyses
+sce_sub <- sce_norm[!rowData(sce_norm)$is_feature_control, ] 
+
+# pick top 5000 genes
+sce_sub <- sce_sub[rownames(hvg.out), ]
+```
+
+
+## Dimensionality reduction 
+
+```{r}
+set.seed(1000)
+
+rownames(sce_sub) <- rowData(sce_sub)$gene_name_symbol
+# Using irlba to set up the t-SNE, for speed.
+sce_sub <- runPCA(sce_sub, ntop=Inf, method="irlba", ncomponents=2)
+
+plotReducedDim(sce_sub, use_dimred = "PCA", colour_by="cancer_status")
+
+plotDiffusionMap(sce_sub, colour_by="MPO",
+    run_args=list(use_dimred="PCA", sigma=25))  
 
 ```
+
+```{r umap-1}
+sce_sub <- runUMAP(sce_sub, ncomponents = 2, ntop=500)
+plotUMAP(sce_sub, colour_by="cancer_status") + ggtitle("umap")
+plotUMAP(sce_sub, colour_by="CD34") + ggtitle("umap (CD34)")
+```
+
+```{r umap-E}
+plotUMAP(sce_sub, colour_by="HBB") + ggtitle("umap (E -- HBB)") # E
+plotUMAP(sce_sub, colour_by="ALAS2") + ggtitle("umap (E -- Alas2)") # E
+```
+
+```{r umap-Ba}
+plotUMAP(sce_sub, colour_by="LMO4") + ggtitle("umap (Ba -- Lmo4)") # Ba
+plotUMAP(sce_sub, colour_by="SRGN") + ggtitle("umap (Ba -- Srgn)") # Ba
+```
+
+```{r umap-MEG}
+plotUMAP(sce_sub, colour_by="ITGA2B") + ggtitle("umap (MEG -- ITGA2B)") # MEG
+plotUMAP(sce_sub, colour_by="PF4") + ggtitle("umap (MEG -- Pf4)") # MEG
+```
+
+```{r umap-MPP}
+plotUMAP(sce_sub, colour_by="HLF") + ggtitle("umap (MPP -- HLF)") # MPP
+plotUMAP(sce_sub, colour_by="GCNT2") + ggtitle("umap (MPP -- Gcnt2)") # MPP
+```
+
+```{r umap-Ly}
+plotUMAP(sce_sub, colour_by="MZB1") + ggtitle("umap (Ly -- MZB1)") # Ly
+plotUMAP(sce_sub, colour_by="LSP1") + ggtitle("umap (Ly -- LSP1)") # Ly
+plotUMAP(sce_sub, colour_by="FLT3") + ggtitle("umap (Ly -- FLT3)") # Ly
+```
+
+```{r umap-M}
+plotUMAP(sce_sub, colour_by="CCR2") + ggtitle("umap (M -- CCR2)") # M
+plotUMAP(sce_sub, colour_by="CSF1R") + ggtitle("umap (M -- Csf1r)") # M
+plotUMAP(sce_sub, colour_by="LY6C2") + ggtitle("umap (M -- Ly6c2)") # M
+```
+
+```{r umap-G}
+plotUMAP(sce_sub, colour_by="MPO") + ggtitle("umap (MPO)") # G
+plotUMAP(sce_sub, colour_by="ELANE") + ggtitle("umap (Elane)") # G
+```
+
+
+# monocle
+
+```{r}
+library(monocle)
+      
+# Converting the exprs data in log scale back to original scale
+data <- 2^logcounts(sce_sub) - metadata(sce_sub)$log.exprs.offset
+fd <- rowData(sce_sub)
+colnames(fd)[2] <- "gene_short_name"
+pd <- colData(sce_sub)
+monocle_cds <- newCellDataSet(data, 
+            phenoData = AnnotatedDataFrame(data=as.data.frame(pd)), 
+            featureData = AnnotatedDataFrame(data=as.data.frame(fd)), 
+            lowerDetectionLimit = 1, expressionFamily = negbinomial.size())
+monocle_cds@auxOrderingData$scran <- sce_sub
+
+disp_table <- dispersionTable(monocle_cds)
+ordering_genes <- subset(disp_table, mean_expression >= 0.1)
+cds <- setOrderingFilter(cds, ordering_genes)
+cds <- reduceDimension(cds)
+cds <- orderCells(cds)
+
+```
+
+
+
+
+
+## Fraction of cancer cells
+
+```{r}
+# f = prob(cancer allele); 1-f = prob(not being a cancer allele)
+# f(cancer) = f / (f + 2*(1-f) + f) = f / 2
+# therfore need to multiply by 2 to recover true cancer
+frac_cancer <- function(n_mut, n_wt, p_time){
+  2 * (n_mut / (n_mut + n_wt))
+}
+```
+
+
+```{r}
+# p(true cancer cell | obs wt cell) = 
+#     P(obs wt | true cancer) * p(true cancer)   \ 
+#     (P(obs wt | true cancer) * p(true cancer)  + P(obs wt | not cancer) * p(not cancer) ) = 
+#     1/2 * f(t)  \ ( 1/2 * f(t)  + 1 * 1-f(t) )
+```
+
 

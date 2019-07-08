@@ -8,14 +8,14 @@ output:
         toc_float: true
         highlight: tango
         number_sections: false
-fig_width: 5
-fig_height: 5 
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, 
+                      message = FALSE)
+# workingPath <- "/users/shicks1/projects/sc-dynamics-CML"
+here::here()
 ```
-
 
 # Summary of patient data
 
@@ -47,27 +47,21 @@ thresholds)."
 
 # Data Analysis
 
-To-dos: 
-
-* identify doublets, empty cells, and and apply normalization
-* Use `scran::cyclone()` in Bioconductor to compare cancer vs normal cells in different stages of cell cycle
-
-
 ## Load data
 Read in data 
 ```{r load-data, message=FALSE, cache=TRUE, eval=FALSE}
-dat_counts <- readr::read_csv("data/0114P_RNAseq/BM_CD34/mycounts_2.csv",
+dat_counts <- readr::read_csv(file.path(workingPath, "data/0114P_RNAseq/BM_CD34/mycounts_2.csv"),
                               col_names = FALSE) # dat is 445.8 MB in size
 dat_counts <- t(dat_counts) # flip to make cells along columns
 
-dat_muts <- readr::read_csv(
-  "data/0114P_RNAseq/BM_CD34/mygroupings_threshold_NS_100_Rev2.csv", 
+dat_muts <- readr::read_csv(file.path(workingPath, 
+  "data/0114P_RNAseq/BM_CD34/mygroupings_threshold_NS_100_Rev2.csv"), 
   col_names = FALSE)
-dat_features <- readr::read_tsv(
-  "data/0114P_RNAseq/BM_CD34/features.tsv", 
+dat_features <- readr::read_tsv(file.path(workingPath, 
+  "data/0114P_RNAseq/BM_CD34/features.tsv"), 
   col_names = FALSE)
-dat_barcodes <- readr::read_tsv(
-  "data/0114P_RNAseq/BM_CD34/barcodes_2.tsv", 
+dat_barcodes <- readr::read_tsv(file.path(workingPath, 
+  "data/0114P_RNAseq/BM_CD34/barcodes_2.tsv"), 
   col_names = FALSE)
 ```
 
@@ -117,7 +111,8 @@ isSpike(sce, "MT") <- grepl("^MT-", rowData(sce)$gene_name_symbol)
 sce <- calculateQCMetrics(sce)
 
 # save SCE object
-saveRDS(sce, file = "data/0114P_RNAseq/BM_CD34/sce_0114.rds")
+saveRDS(sce, file = file.path(workingPath, 
+                      "data/0114P_RNAseq/BM_CD34/sce_0114.rds"))
 ```
 
 
@@ -126,7 +121,7 @@ saveRDS(sce, file = "data/0114P_RNAseq/BM_CD34/sce_0114.rds")
 ```{r}
 library(SingleCellExperiment)
 library(scater)
-sce <- readRDS("data/0114P_RNAseq/BM_CD34/sce_0114.rds")
+sce <- readRDS(file.path(workingPath, "data/0114P_RNAseq/BM_CD34/sce_0114.rds"))
 ```
 
 
@@ -268,7 +263,7 @@ sce$cellcycle_score_normalized_G1 <- assigned$normalized.scores$G1
 sce$cellcycle_score_normalized_G2M <- assigned$normalized.scores$G2M
 sce$cellcycle_score_normalized_S <- assigned$normalized.scores$S
 
-saveRDS(sce, file = "data/0114P_RNAseq/BM_CD34/sce_qc_0114.rds")
+saveRDS(sce, file = file.path(workingPath, "data/0114P_RNAseq/BM_CD34/sce_qc_0114.rds"))
 ```
 
 We can plot the cell cycle scores for 
@@ -278,14 +273,7 @@ G1 and G2M phases.
 library(SingleCellExperiment)
 library(scater)
 
-sce <- readRDS("data/0114P_RNAseq/BM_CD34/sce_qc_0114.rds")
-
-par(mfrow=c(1,2))
-plot(sce$cellcycle_score_G1, sce$cellcycle_score_G2M, 
-    xlab="G1 score", ylab="G2/M score", pch=16)
-
-plot(sce$cellcycle_score_normalized_G1, sce$cellcycle_score_normalized_G2M, 
-    xlab="G1 score", ylab="G2/M score", pch=16)
+sce <- readRDS(file.path(workingPath, "data/0114P_RNAseq/BM_CD34/sce_qc_0114.rds"))
 ```
 
 ```{r}
@@ -306,8 +294,8 @@ plot_grid(p1, p2, ncol=2, labels = LETTERS[1:2])
 ```
 
 Let's save this figure.
-```{r}
-pdf("figures/2019-03-07-cell-cycle.pdf", width=12,height=4)
+```{r, eval=FALSE}
+pdf(file.path(workingPath, "figures/2019-03-07-cell-cycle.pdf"), width=12,height=4)
 plot_grid(p1, p2, ncol=2, labels = LETTERS[1:2])
 dev.off()
 ```
@@ -426,20 +414,17 @@ appropriate size factors.
 
 ```{r, eval=FALSE}
 sce_norm <- normalize(sce_norm)
-saveRDS(sce_norm, file = "data/0114P_RNAseq/BM_CD34/sce_norm_0114.rds")
+saveRDS(sce_norm, file = file.path(workingPath, 
+                      "data/0114P_RNAseq/BM_CD34/sce_norm_0114.rds"))
 ```
 
-Let's look at what the size factors look like
-```{r}
-sce_norm <- readRDS("data/0114P_RNAseq/BM_CD34/sce_norm_0114.rds")
-
-plot(sizeFactors(sce_norm), sce_norm$total_counts/1e3, log="xy",
-    ylab="Library size (thousands)", xlab="Size factor")
-```
 
 ## Filter for highly variable genes
 
 ```{r}
+sce_norm <- readRDS(file.path(workingPath, 
+                    "data/0114P_RNAseq/BM_CD34/sce_norm_0114.rds"))
+
 library(scran)
 keep_cell_MT <- (colSums(counts(sce_norm[isSpike(sce_norm), ])) >1)
 sce_norm <- sce_norm[, keep_cell_MT]
@@ -478,16 +463,11 @@ variance and do not contribute much to the cell-cell heterogeneity.
 ```{r}
 hvg.out <- hvg.out[order(hvg.out$bio, decreasing=TRUE),] 
 head(hvg.out)
+```
 
-fontsize <- theme(axis.text=element_text(size=12), 
-                  axis.title=element_text(size=16))
-plotExpression(sce_norm, features = rownames(hvg.out)[1:4], 
-               x = "cancer_status") + fontsize
-
+```{r}
 # remove MT genes for downstream analyses
 sce_sub <- sce_norm[!rowData(sce_norm)$is_feature_control, ] 
-
-# pick top 5000 genes
 sce_sub <- sce_sub[rownames(hvg.out), ]
 ```
 
@@ -495,60 +475,46 @@ sce_sub <- sce_sub[rownames(hvg.out), ]
 ## Dimensionality reduction 
 
 ```{r}
-set.seed(1000)
-
 rownames(sce_sub) <- rowData(sce_sub)$gene_name_symbol
-# Using irlba to set up the t-SNE, for speed.
-sce_sub <- runPCA(sce_sub, ntop=Inf, method="irlba", ncomponents=2)
 
-plotReducedDim(sce_sub, use_dimred = "PCA", colour_by="cancer_status")
-
-plotDiffusionMap(sce_sub, colour_by="MPO",
-    run_args=list(use_dimred="PCA", sigma=25))  
-
+library(scater)
+# Using irlba to set up the umap for speed.
+sce_sub <- runPCA(sce_sub, ntop=Inf, method="irlba", ncomponents=20)
 ```
 
 ```{r umap-1}
+set.seed(1234)
 sce_sub <- runUMAP(sce_sub, ncomponents = 2, ntop=500)
 plotUMAP(sce_sub, colour_by="cancer_status") + ggtitle("umap")
-plotUMAP(sce_sub, colour_by="CD34") + ggtitle("umap (CD34)")
+plotUMAP(sce_sub, colour_by="CD34") + ggtitle("umap")
 ```
 
 ```{r umap-E}
 plotUMAP(sce_sub, colour_by="HBB") + ggtitle("umap (E -- HBB)") # E
-plotUMAP(sce_sub, colour_by="ALAS2") + ggtitle("umap (E -- Alas2)") # E
 ```
 
 ```{r umap-Ba}
 plotUMAP(sce_sub, colour_by="LMO4") + ggtitle("umap (Ba -- Lmo4)") # Ba
-plotUMAP(sce_sub, colour_by="SRGN") + ggtitle("umap (Ba -- Srgn)") # Ba
 ```
 
 ```{r umap-MEG}
 plotUMAP(sce_sub, colour_by="ITGA2B") + ggtitle("umap (MEG -- ITGA2B)") # MEG
-plotUMAP(sce_sub, colour_by="PF4") + ggtitle("umap (MEG -- Pf4)") # MEG
 ```
 
 ```{r umap-MPP}
 plotUMAP(sce_sub, colour_by="HLF") + ggtitle("umap (MPP -- HLF)") # MPP
-plotUMAP(sce_sub, colour_by="GCNT2") + ggtitle("umap (MPP -- Gcnt2)") # MPP
 ```
 
 ```{r umap-Ly}
-plotUMAP(sce_sub, colour_by="MZB1") + ggtitle("umap (Ly -- MZB1)") # Ly
-plotUMAP(sce_sub, colour_by="LSP1") + ggtitle("umap (Ly -- LSP1)") # Ly
-plotUMAP(sce_sub, colour_by="FLT3") + ggtitle("umap (Ly -- FLT3)") # Ly
+plotUMAP(sce_sub, colour_by="CD79A") + ggtitle("umap (Ly -- CD79A)") # Ly
 ```
 
 ```{r umap-M}
-plotUMAP(sce_sub, colour_by="CCR2") + ggtitle("umap (M -- CCR2)") # M
-plotUMAP(sce_sub, colour_by="CSF1R") + ggtitle("umap (M -- Csf1r)") # M
-plotUMAP(sce_sub, colour_by="LY6C2") + ggtitle("umap (M -- Ly6c2)") # M
+plotUMAP(sce_sub, colour_by="CSF1R") + ggtitle("umap (M -- CCR2)") # M
 ```
 
 ```{r umap-G}
 plotUMAP(sce_sub, colour_by="MPO") + ggtitle("umap (MPO)") # G
-plotUMAP(sce_sub, colour_by="ELANE") + ggtitle("umap (Elane)") # G
 ```
 
 # slingshot 
@@ -583,13 +549,30 @@ plot(1:k.max, wss,
 
 So let's go with 8? 
 ```{r}
-k_out <- kmeans(rd, centers = 10)
+set.seed(123)
+k_out <- kmeans(rd, centers = 9)
 plot(rd, col = k_out$cluster)
 
 sce_sub$cluster_labels <- k_out$cluster
 ```
 
 To run slingshot with the dimensionality reduction produced by PCA and cluster labels identified by Gaussian mixutre modeling, we would do the following:
+
+```{r}
+lin1 <- getLineages(rd, sce_sub$cluster_labels, start.clus = '6')
+plot(rd, col = brewer.pal(9,"Set1")[sce_sub$cluster_labels], asp = 1, pch = 16)
+lines(lin1, lwd = 3, show.constraints = TRUE)
+
+crv1 <- getCurves(lin1)
+plot(rd, col = brewer.pal(9,"Set1")[sce_sub$cluster_labels], asp = 1, pch = 16)
+lines(crv1, lwd = 3)
+
+plot(rd, col = colors[cut(sce_sub$slingPseudotime_1,breaks=100)], 
+     pch=16, asp = 1)
+lines(SlingshotDataSet(sce_sub), lwd=2)
+
+```
+
 
 ```{r}
 library(slingshot)
@@ -600,14 +583,18 @@ sce_sub <- slingshot(sce_sub, clusterLabels = 'cluster_labels', reducedDim = 'UM
 ```{r}
 summary(sce_sub$slingPseudotime_1)
 colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
-plot(reducedDims(sce_sub)$UMAP, col = colors[cut(sce_sub$slingPseudotime_1,breaks=100)], pch=16, asp = 1)
+plot(reducedDims(sce_sub)$UMAP, 
+     col = colors[cut(sce_sub$slingPseudotime_1,breaks=100)], 
+     pch=16, asp = 1)
 lines(SlingshotDataSet(sce_sub), lwd=2)
 ```
 
 We can also see how the lineage structure was intially estimated by the cluster-based minimum spanning tree by using the type argument.
 
 ```{r}
-plot(reducedDims(sce_sub)$UMAP, col = brewer.pal(8,'Set1')[sce_sub$cluster_labels], pch=16, asp = 1)
+plot(reducedDims(sce_sub)$UMAP, 
+     col = brewer.pal(8,'Set1')[sce_sub$cluster_labels],
+     pch=16, asp = 1)
 lines(SlingshotDataSet(sce_sub), lwd=2, type = 'lineages')
 ```
 
@@ -650,29 +637,17 @@ ce <- ClusterExperiment(heatdata, heatclus, transformation = log1p)
 ```
 
 ```{r, eval=FALSE}
-pdf("figures/2019-04-02-slingshot-heatmap.pdf", width=12,height=4)
+pdf(file.path(workingPath, "figures/2019-04-02-slingshot-heatmap.pdf"), width=12,height=4)
   plotHeatmap(ce, clusterSamplesData = "orderSamplesValue", visualizeData = 'transformed')
 dev.off()
 ```
 
-```{r}
-p1 <- plotUMAP(sce_sub, colour_by=topgenes[1]) + ggtitle("umap")
-p1
-
-p2 <- plotUMAP(sce_sub, colour_by=topgenes[2]) + ggtitle("umap")
-p2
-
-p3 <- plotUMAP(sce_sub, colour_by=topgenes[3]) + ggtitle("umap")
-p3
-
-p4 <- plotUMAP(sce_sub, colour_by=topgenes[4]) + ggtitle("umap")
-p4
-
-p5 <- plotUMAP(sce_sub, colour_by=topgenes[5]) + ggtitle("umap")
-p5
-```
-
 ```{r, eval=FALSE}
+p1 <- plotUMAP(sce_sub, colour_by=topgenes[1]) + ggtitle("umap")
+p2 <- plotUMAP(sce_sub, colour_by=topgenes[2]) + ggtitle("umap")
+p3 <- plotUMAP(sce_sub, colour_by=topgenes[3]) + ggtitle("umap")
+p4 <- plotUMAP(sce_sub, colour_by=topgenes[4]) + ggtitle("umap")
+p5 <- plotUMAP(sce_sub, colour_by=topgenes[5]) + ggtitle("umap")
 p6 <- plotUMAP(sce_sub, colour_by=topgenes[6]) + ggtitle("umap")
 p7 <- plotUMAP(sce_sub, colour_by=topgenes[7]) + ggtitle("umap")
 p8 <- plotUMAP(sce_sub, colour_by=topgenes[8]) + ggtitle("umap")
@@ -693,12 +668,10 @@ fig <- cowplot::plot_grid(p1, p2,  p3, p4, p5, p6, p7, p8, p9, p10,
                           p11, p12, p13, p14, p15, p16, p17, p18, p19, p20,
                           ncol = 5)
 
-pdf("figures/2019-04-02-slingshot-hvg.pdf", width=25,height=20)
+pdf(file.path(workingPath, "figures/2019-04-02-slingshot-hvg.pdf"), width=25,height=20)
 print(fig)
 dev.off()
 ```
-
-
 
 
 # monocle

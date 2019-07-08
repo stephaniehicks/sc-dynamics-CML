@@ -17,7 +17,7 @@ data.frame(ByLibSize=sum(libsize.drop), ByFeature=sum(feature.drop),
 
 sce <- sce[,!(libsize.drop | feature.drop | MT.drop)]
 
-# cell cycle classification
+
 library(scran)
 human.pairs <- readRDS(system.file("exdata", "human_cycle_markers.rds", package="scran"))
 assigned <- cyclone(sce, pairs=human.pairs, gene.names=rowData(sce)$ensembl_gene_id)

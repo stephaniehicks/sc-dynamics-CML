@@ -13,8 +13,7 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, 
                       message = FALSE)
-# workingPath <- "/users/shicks1/projects/sc-dynamics-CML"
-here::here()
+library(here)
 ```
 
 # Summary of patient data
@@ -50,17 +49,17 @@ thresholds)."
 ## Load data
 Read in data 
 ```{r load-data, message=FALSE, cache=TRUE, eval=FALSE}
-dat_counts <- readr::read_csv(file.path(workingPath, "data/0114P_RNAseq/BM_CD34/mycounts_2.csv"),
+dat_counts <- readr::read_csv(here("data/0114P_RNAseq/BM_CD34/mycounts_2.csv")),
                               col_names = FALSE) # dat is 445.8 MB in size
 dat_counts <- t(dat_counts) # flip to make cells along columns
 
-dat_muts <- readr::read_csv(file.path(workingPath, 
+dat_muts <- readr::read_csv(here(
   "data/0114P_RNAseq/BM_CD34/mygroupings_threshold_NS_100_Rev2.csv"), 
   col_names = FALSE)
-dat_features <- readr::read_tsv(file.path(workingPath, 
+dat_features <- readr::read_tsv(here(
   "data/0114P_RNAseq/BM_CD34/features.tsv"), 
   col_names = FALSE)
-dat_barcodes <- readr::read_tsv(file.path(workingPath, 
+dat_barcodes <- readr::read_tsv(here(
   "data/0114P_RNAseq/BM_CD34/barcodes_2.tsv"), 
   col_names = FALSE)
 ```
@@ -111,8 +110,7 @@ isSpike(sce, "MT") <- grepl("^MT-", rowData(sce)$gene_name_symbol)
 sce <- calculateQCMetrics(sce)
 
 # save SCE object
-saveRDS(sce, file = file.path(workingPath, 
-                      "data/0114P_RNAseq/BM_CD34/sce_0114.rds"))
+saveRDS(sce, file = here("data/0114P_RNAseq/BM_CD34/sce_0114.rds"))
 ```
 
 
@@ -121,7 +119,7 @@ saveRDS(sce, file = file.path(workingPath,
 ```{r}
 library(SingleCellExperiment)
 library(scater)
-sce <- readRDS(file.path(workingPath, "data/0114P_RNAseq/BM_CD34/sce_0114.rds"))
+sce <- readRDS(here("data/0114P_RNAseq/BM_CD34/sce_0114.rds"))
 ```
 
 
@@ -263,7 +261,7 @@ sce$cellcycle_score_normalized_G1 <- assigned$normalized.scores$G1
 sce$cellcycle_score_normalized_G2M <- assigned$normalized.scores$G2M
 sce$cellcycle_score_normalized_S <- assigned$normalized.scores$S
 
-saveRDS(sce, file = file.path(workingPath, "data/0114P_RNAseq/BM_CD34/sce_qc_0114.rds"))
+saveRDS(sce, file = here("data/0114P_RNAseq/BM_CD34/sce_qc_0114.rds"))
 ```
 
 We can plot the cell cycle scores for 
@@ -273,7 +271,7 @@ G1 and G2M phases.
 library(SingleCellExperiment)
 library(scater)
 
-sce <- readRDS(file.path(workingPath, "data/0114P_RNAseq/BM_CD34/sce_qc_0114.rds"))
+sce <- readRDS(here("data/0114P_RNAseq/BM_CD34/sce_qc_0114.rds"))
 ```
 
 ```{r}
@@ -295,7 +293,7 @@ plot_grid(p1, p2, ncol=2, labels = LETTERS[1:2])
 
 Let's save this figure.
 ```{r, eval=FALSE}
-pdf(file.path(workingPath, "figures/2019-03-07-cell-cycle.pdf"), width=12,height=4)
+pdf(here("figures/2019-03-07-cell-cycle.pdf"), width=12,height=4)
 plot_grid(p1, p2, ncol=2, labels = LETTERS[1:2])
 dev.off()
 ```
@@ -395,8 +393,8 @@ to avoid pooling together very different cells.
 
 ```{r, eval=FALSE}
 library(scran)
-set.seed(1000)
 
+set.seed(1000)
 clusters <- quickCluster(sce_norm, method="igraph", min.mean=0.01)
 table(clusters)
 
@@ -414,18 +412,20 @@ appropriate size factors.
 
 ```{r, eval=FALSE}
 sce_norm <- normalize(sce_norm)
-saveRDS(sce_norm, file = file.path(workingPath, 
-                      "data/0114P_RNAseq/BM_CD34/sce_norm_0114.rds"))
+saveRDS(sce_norm, file = here("data/0114P_RNAseq/BM_CD34/sce_norm_0114.rds"))
 ```
 
 
 ## Filter for highly variable genes
 
 ```{r}
-sce_norm <- readRDS(file.path(workingPath, 
-                    "data/0114P_RNAseq/BM_CD34/sce_norm_0114.rds"))
+sce_norm <- readRDS(here("data/0114P_RNAseq/BM_CD34/sce_norm_0114.rds"))
 
 library(scran)
+rownames(sce_norm) = scater::uniquifyFeatureNames(
+                        rowData(sce_norm)$gene_name_ensembl, 
+                        rowData(sce_norm)$hgnc_symbol)
+
 keep_cell_MT <- (colSums(counts(sce_norm[isSpike(sce_norm), ])) >1)
 sce_norm <- sce_norm[, keep_cell_MT]
 sce_norm
@@ -475,9 +475,8 @@ sce_sub <- sce_sub[rownames(hvg.out), ]
 ## Dimensionality reduction 
 
 ```{r}
-rownames(sce_sub) <- rowData(sce_sub)$gene_name_symbol
-
 library(scater)
+
 # Using irlba to set up the umap for speed.
 sce_sub <- runPCA(sce_sub, ntop=Inf, method="irlba", ncomponents=20)
 ```
@@ -510,217 +509,162 @@ plotUMAP(sce_sub, colour_by="CD79A") + ggtitle("umap (Ly -- CD79A)") # Ly
 ```
 
 ```{r umap-M}
-plotUMAP(sce_sub, colour_by="CSF1R") + ggtitle("umap (M -- CCR2)") # M
+plotUMAP(sce_sub, colour_by="CSF1R") + ggtitle("umap (M -- CSF1R)") # M
 ```
 
 ```{r umap-G}
-plotUMAP(sce_sub, colour_by="MPO") + ggtitle("umap (MPO)") # G
-```
-
-# slingshot 
-
-The minimal input to `slingshot` is a matrix representing the 
-cells in a reduced-dimensional space and a vector of cluster labels.
-
-With these two inputs, we then:
-
-1. Identify the global lineage structure by constructing an minimum spanning tree (MST) on the clusters, with the `getLineages()` function.
-2. Construct smooth lineages and infer pseudotime variables by fitting simultaneous principal curves with the `getCurves()` function.
-3. Assess the output of each step with built-in visualization tools.
-
-Firs, we use the reduced dims from `umap`. 
-```{r}
-rd <- reducedDim(sce_sub, "UMAP")
-```
-
-For cluster labels, 
-```{r}
-k.max <- 15
-data <- rd
-wss <- sapply(1:k.max, 
-              function(k){kmeans(data, k, nstart=50,iter.max = 15 )$tot.withinss})
-wss
-
-plot(1:k.max, wss,
-     type="b", pch = 19, frame = FALSE, 
-     xlab="Number of clusters K", main = "Elbow plot",
-     ylab="Total within-clusters sum of squares")
-```
-
-So let's go with 8? 
-```{r}
-set.seed(123)
-k_out <- kmeans(rd, centers = 9)
-plot(rd, col = k_out$cluster)
-
-sce_sub$cluster_labels <- k_out$cluster
-```
-
-To run slingshot with the dimensionality reduction produced by PCA and cluster labels identified by Gaussian mixutre modeling, we would do the following:
-
-```{r}
-lin1 <- getLineages(rd, sce_sub$cluster_labels, start.clus = '6')
-plot(rd, col = brewer.pal(9,"Set1")[sce_sub$cluster_labels], asp = 1, pch = 16)
-lines(lin1, lwd = 3, show.constraints = TRUE)
-
-crv1 <- getCurves(lin1)
-plot(rd, col = brewer.pal(9,"Set1")[sce_sub$cluster_labels], asp = 1, pch = 16)
-lines(crv1, lwd = 3)
-
-plot(rd, col = colors[cut(sce_sub$slingPseudotime_1,breaks=100)], 
-     pch=16, asp = 1)
-lines(SlingshotDataSet(sce_sub), lwd=2)
-
-```
-
-
-```{r}
-library(slingshot)
-library(RColorBrewer)
-sce_sub <- slingshot(sce_sub, clusterLabels = 'cluster_labels', reducedDim = 'UMAP')
-```
-
-```{r}
-summary(sce_sub$slingPseudotime_1)
-colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
-plot(reducedDims(sce_sub)$UMAP, 
-     col = colors[cut(sce_sub$slingPseudotime_1,breaks=100)], 
-     pch=16, asp = 1)
-lines(SlingshotDataSet(sce_sub), lwd=2)
-```
-
-We can also see how the lineage structure was intially estimated by the cluster-based minimum spanning tree by using the type argument.
-
-```{r}
-plot(reducedDims(sce_sub)$UMAP, 
-     col = brewer.pal(8,'Set1')[sce_sub$cluster_labels],
-     pch=16, asp = 1)
-lines(SlingshotDataSet(sce_sub), lwd=2, type = 'lineages')
-```
-
-## Identifying temporally expressed genes using `slingshot`
-
-After running `slingshot`, here, we find genes that change 
-their expression over the course of development. We use the 
-1000 most variable genes.
-
-We will regress each gene on the pseudotime variable we
-have generated, using a general additive model (GAM). This
-allows us to detect non-linear patterns in gene expression.
-
-```{r}
-require(gam)
-t <- sce_sub$slingPseudotime_1
-
-# for time, only look at the 1,000 most variable genes
-Y <- assays(sce_sub[1:100,])$logcounts
-
-# fit a GAM with a loess term for pseudotime
-gam.pval <- apply(Y,1,function(z){
-  d <- data.frame(z=z, t=t)
-  tmp <- gam(z ~ lo(t), data=d)
-  p <- summary(tmp)[4][[1]][1,5]
-  p
-})
-```
-
-We can then pick out the top genes based on p-value and visualize their expression over developmental time with a heatmap.
-
-```{r}
-require(clusterExperiment)
-
-topgenes <- names(sort(gam.pval, decreasing = FALSE))[1:50]
-heatdata <- logcounts(sce_sub)[rownames(logcounts(sce_sub)) %in% topgenes, 
-                        order(t, na.last = NA)]
-heatclus <- sce_sub$cluster_labels[order(t, na.last = NA)]
-ce <- ClusterExperiment(heatdata, heatclus, transformation = log1p)
-```
-
-```{r, eval=FALSE}
-pdf(file.path(workingPath, "figures/2019-04-02-slingshot-heatmap.pdf"), width=12,height=4)
-  plotHeatmap(ce, clusterSamplesData = "orderSamplesValue", visualizeData = 'transformed')
-dev.off()
-```
-
-```{r, eval=FALSE}
-p1 <- plotUMAP(sce_sub, colour_by=topgenes[1]) + ggtitle("umap")
-p2 <- plotUMAP(sce_sub, colour_by=topgenes[2]) + ggtitle("umap")
-p3 <- plotUMAP(sce_sub, colour_by=topgenes[3]) + ggtitle("umap")
-p4 <- plotUMAP(sce_sub, colour_by=topgenes[4]) + ggtitle("umap")
-p5 <- plotUMAP(sce_sub, colour_by=topgenes[5]) + ggtitle("umap")
-p6 <- plotUMAP(sce_sub, colour_by=topgenes[6]) + ggtitle("umap")
-p7 <- plotUMAP(sce_sub, colour_by=topgenes[7]) + ggtitle("umap")
-p8 <- plotUMAP(sce_sub, colour_by=topgenes[8]) + ggtitle("umap")
-p9 <- plotUMAP(sce_sub, colour_by=topgenes[9]) + ggtitle("umap")
-p10 <- plotUMAP(sce_sub, colour_by=topgenes[10]) + ggtitle("umap")
-p11 <- plotUMAP(sce_sub, colour_by=topgenes[11]) + ggtitle("umap")
-p12 <- plotUMAP(sce_sub, colour_by=topgenes[12]) + ggtitle("umap")
-p13 <- plotUMAP(sce_sub, colour_by=topgenes[13]) + ggtitle("umap")
-p14 <- plotUMAP(sce_sub, colour_by=topgenes[14]) + ggtitle("umap")
-p15 <- plotUMAP(sce_sub, colour_by=topgenes[15]) + ggtitle("umap")
-p16 <- plotUMAP(sce_sub, colour_by=topgenes[16]) + ggtitle("umap")
-p17 <- plotUMAP(sce_sub, colour_by=topgenes[17]) + ggtitle("umap")
-p18 <- plotUMAP(sce_sub, colour_by=topgenes[18]) + ggtitle("umap")
-p19 <- plotUMAP(sce_sub, colour_by=topgenes[19]) + ggtitle("umap")
-p20 <- plotUMAP(sce_sub, colour_by=topgenes[20]) + ggtitle("umap")
-
-fig <- cowplot::plot_grid(p1, p2,  p3, p4, p5, p6, p7, p8, p9, p10, 
-                          p11, p12, p13, p14, p15, p16, p17, p18, p19, p20,
-                          ncol = 5)
-
-pdf(file.path(workingPath, "figures/2019-04-02-slingshot-hvg.pdf"), width=25,height=20)
-print(fig)
-dev.off()
+plotUMAP(sce_sub, colour_by="MPO") + ggtitle("umap (G -- MPO)") # G
 ```
 
 
 # monocle
 
-Work in progress... 
+Install and load monocle3
 
 ```{r, eval=FALSE}
+BiocManager::install("monocle")
+```
+
+```{r}
 library(monocle)
-      
+
 # Converting the exprs data in log scale back to original scale
 data <- 2^logcounts(sce_sub) - metadata(sce_sub)$log.exprs.offset
-fd <- rowData(sce_sub)
-colnames(fd)[2] <- "gene_short_name"
-pd <- colData(sce_sub)
+pd <- as.data.frame(colData(sce_sub))
+fd <- as.data.frame(rowData(sce_sub))
+fd$gene_short_name <- rownames(fd)
+
 monocle_cds <- newCellDataSet(data, 
-            phenoData = AnnotatedDataFrame(data=as.data.frame(pd)), 
-            featureData = AnnotatedDataFrame(data=as.data.frame(fd)), 
+            phenoData = methods::new("AnnotatedDataFrame", data = pd), 
+            featureData =methods::new("AnnotatedDataFrame", data = fd), 
             lowerDetectionLimit = 1, expressionFamily = negbinomial.size())
 monocle_cds@auxOrderingData$scran <- sce_sub
 
+monocle_cds <- estimateSizeFactors(monocle_cds)
+monocle_cds <- estimateDispersions(monocle_cds)
+
+plot_pc_variance_explained(monocle_cds, return_all = F, 
+                           max_components = 25) # Choose 10 PCs
+
+monocle_cds <- reduceDimension(monocle_cds,
+                           max_components = 2,
+                           norm_method = 'log',
+                           num_dim = 10,
+                           reduction_method = 'tSNE',
+                           verbose = T)
+
+monocle_cds <- clusterCells(monocle_cds, verbose = F) 
+plot_cell_clusters(monocle_cds, color_by = "Cluster")
+plot_cell_clusters(monocle_cds, color_by = "total_features_by_counts")
+
+
 disp_table <- dispersionTable(monocle_cds)
 ordering_genes <- subset(disp_table, mean_expression >= 0.1)
-cds <- setOrderingFilter(cds, ordering_genes)
-cds <- reduceDimension(cds)
-cds <- orderCells(cds)
+dim(ordering_genes)
+
+monocle_cds2 <- setOrderingFilter(monocle_cds, ordering_genes$gene_id)
+table(fData(monocle_cds2)$use_for_ordering)
+
+monocle_cds2 <- reduceDimension(monocle_cds2, max_components = 2, 
+                               reduction_method = 'DDRTree') # this takes a while.... 
+monocle_cds2 <- orderCells(monocle_cds2)
+dim(monocle_cds2)
+
+plot_cell_trajectory(monocle_cds2, color_by = "Cluster", cell_size = 0.5)
+plot_cell_trajectory(monocle_cds2, color_by = "Pseudotime", cell_size = 0.5)
+plot_cell_trajectory(monocle_cds2, color_by = "State", cell_size = 0.5)
+plot_cell_trajectory(monocle_cds2, color_by = "cancer_status", cell_size = 0.5)
+plot_cell_trajectory(monocle_cds2, color_by = "phases", cell_size = 0.5)
+plot_cell_trajectory(monocle_cds2, color_by = "cellcycle_score_normalized_G1", cell_size = 0.5)
+plot_cell_trajectory(monocle_cds2, color_by = "cellcycle_score_normalized_G2M", cell_size = 0.5)
+plot_cell_trajectory(monocle_cds2, color_by = "cellcycle_score_normalized_S", cell_size = 0.5)
+
+pData(monocle_cds2)$CD34 <- ifelse(exprs(monocle_cds2)[grep("CD34", rownames(monocle_cds2)), ]>0, 1, 0)
+plot_cell_trajectory(monocle_cds2, color_by = "as.factor(CD34)", cell_size = 0.5)
+
+## Multi-Potent Progenitor/MPP
+pData(monocle_cds2)$HLF <- ifelse(exprs(monocle_cds2)[grep("^HLF", rownames(monocle_cds2)), ]>0, 1, 0)
+plot_cell_trajectory(monocle_cds2, color_by = "as.factor(HLF)", cell_size = 0.5) 
+
+## Granulocyte/macrophage progenitors/GMP
+pData(monocle_cds2)$MPO <- ifelse(exprs(monocle_cds2)[grep("^MPO", rownames(monocle_cds2)), ]>0, 1, 0)
+plot_cell_trajectory(monocle_cds2, color_by = "as.factor(MPO)", cell_size = 0.5) 
+
+## MEP 
+pData(monocle_cds2)$ITGA2B <- ifelse(exprs(monocle_cds2)[grep("^ITGA2B", rownames(monocle_cds2)), ]>0, 1, 0)
+plot_cell_trajectory(monocle_cds2, color_by = "as.factor(ITGA2B)", cell_size = 0.5) # Megakaryocytes/MK
+
+pData(monocle_cds2)$HBB <- ifelse(exprs(monocle_cds2)[grep("^HBB", rownames(monocle_cds2)), ]>0, 1, 0)
+plot_cell_trajectory(monocle_cds2, color_by = "as.factor(HBB)", cell_size = 0.5) # Erythrocytes/E
+
+pData(monocle_cds2)$EPOR <- ifelse(exprs(monocle_cds2)[grep("^EPOR", rownames(monocle_cds2)), ]>0, 1, 0)
+plot_cell_trajectory(monocle_cds2, color_by = "as.factor(EPOR)", cell_size = 0.5) # Erythrocytes/E
+
+pData(monocle_cds2)$LMO4 <- ifelse(exprs(monocle_cds2)[grep("^LMO4", rownames(monocle_cds2)), ]>0, 1, 0)
+plot_cell_trajectory(monocle_cds2, color_by = "as.factor(LMO4)", cell_size = 0.5) # Ba
+
+pData(monocle_cds2)$CD79A <- ifelse(exprs(monocle_cds2)[grep("^CD79A", rownames(monocle_cds2)), ]>0, 1, 0)
+plot_cell_trajectory(monocle_cds2, color_by = "as.factor(CD79A)", cell_size = 0.5) # Ly
+
+pData(monocle_cds2)$CSF1R <- ifelse(exprs(monocle_cds2)[grep("^CSF1R", rownames(monocle_cds2)), ]>0, 1, 0)
+plot_cell_trajectory(monocle_cds2, color_by = "as.factor(CSF1R)", cell_size = 0.5) # M
 
 ```
 
 
-
-
-
-## Fraction of cancer cells
 
 ```{r}
-# f = prob(cancer allele); 1-f = prob(not being a cancer allele)
-# f(cancer) = f / (f + 2*(1-f) + f) = f / 2
-# therfore need to multiply by 2 to recover true cancer
-frac_cancer <- function(n_mut, n_wt, p_time){
-  2 * (n_mut / (n_mut + n_wt))
-}
+table(monocle_cds2$phases)
+
+x <- table(factor(monocle_cds2$cancer_status[monocle_cds2$cancer_status != "unknown"]), 
+      monocle_cds2$phases[monocle_cds2$cancer_status != "unknown"]) 
+x
+
+round(x / rowSums(x), 3)
+chisq.test(x) 
+
 ```
 
+# Fraction of cancer cells
 
 ```{r}
 # p(true cancer cell | obs wt cell) = 
 #     P(obs wt | true cancer) * p(true cancer)   \ 
 #     (P(obs wt | true cancer) * p(true cancer)  + P(obs wt | not cancer) * p(not cancer) ) = 
 #     1/2 * f(t)  \ ( 1/2 * f(t)  + 1 * 1-f(t) )
+
+# f = prob(cancer allele); 1-f = prob(not being a cancer allele)
+# f(cancer) = f / (f + 2*(1-f) + f) = f / 2
+# therfore need to multiply by 2 to recover true cancer
+
+summary(monocle_cds2$Pseudotime)
+xx <- cut(monocle_cds2$Pseudotime, breaks = seq(0, max(monocle_cds2$Pseudotime) + 3, by = 3))
+
+n_mut <- sapply(levels(xx), function(i){
+  tmp <- monocle_cds2$cancer_status[xx == i &  !(monocle_cds2$cancer_status == "unknown")]
+  sum(tmp == "mut", na.rm = TRUE)
+})
+n_mut
+
+n_wt <- sapply(levels(xx), function(i){
+  tmp <- monocle_cds2$cancer_status[xx == i &  !(monocle_cds2$cancer_status == "unknown")]
+  sum(tmp == "wt", na.rm = TRUE)
+})
+n_wt
+
+frac_cancer <- sapply(levels(xx), function(i){
+  tmp <- monocle_cds2$cancer_status[xx == i &  !(monocle_cds2$cancer_status == "unknown")]
+  2*sum(tmp == "mut", na.rm = TRUE) / sum(tmp %in% c("wt", "mut"), na.rm = TRUE)
+})
+
+frac_cancer
+```
+
+
+
+
+
+```{r}
 ```
 
 

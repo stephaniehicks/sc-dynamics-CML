@@ -48,7 +48,7 @@ thresholds)."
 
 ## Load data
 Read in data 
-```{r load-data, message=FALSE, cache=TRUE, eval=FALSE}
+```{r load-data, message=FALSE, eval=FALSE}
 dat_counts <- readr::read_csv(here("data/0114P_RNAseq/BM_CD34/mycounts_2.csv")),
                               col_names = FALSE) # dat is 445.8 MB in size
 dat_counts <- t(dat_counts) # flip to make cells along columns
@@ -65,7 +65,7 @@ dat_barcodes <- readr::read_tsv(here(
 ```
 
 Create a `SingleCellExperiment` object
-```{r create-sce-object, message=FALSE, cache=TRUE, eval=FALSE}
+```{r create-sce-object, message=FALSE, eval=FALSE}
 library(SingleCellExperiment)
 
 # row meta data 
@@ -89,7 +89,7 @@ sce <- SingleCellExperiment(assays = list(counts = dat_counts),
 
 ## Quality control 
 
-```{r scater-qc-basic, message=FALSE, cache=TRUE, eval=FALSE}
+```{r scater-qc-basic, message=FALSE, eval=FALSE}
 library(scater)
 
 sce <- getBMFeatureAnnos(sce, 

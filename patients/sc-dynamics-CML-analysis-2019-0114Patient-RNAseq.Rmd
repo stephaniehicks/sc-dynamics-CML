@@ -526,7 +526,7 @@ Install and load monocle3
 BiocManager::install("monocle")
 ```
 
-```{r}
+```{r, eval=FALSE}
 library(monocle)
 
 # Converting the exprs data in log scale back to original scale
@@ -557,13 +557,9 @@ monocle_cds <- reduceDimension(monocle_cds,
                            verbose = T)
 
 monocle_cds <- clusterCells(monocle_cds, verbose = F) 
-plot_cell_clusters(monocle_cds, color_by = "Cluster")
-plot_cell_clusters(monocle_cds, color_by = "total_features_by_counts")
-
 
 disp_table <- dispersionTable(monocle_cds)
 ordering_genes <- subset(disp_table, mean_expression >= 0.1)
-dim(ordering_genes)
 
 monocle_cds <- setOrderingFilter(monocle_cds, ordering_genes$gene_id)
 table(fData(monocle_cds)$use_for_ordering)
@@ -579,9 +575,11 @@ rm(monocle_cds)
 
 
 ```{r}
+library(monocle)
 monocle_cds <- readRDS(file = here("data/0114P_RNAseq/BM_CD34/cds_monocle_0114.rds"))
 
 plot_cell_trajectory(monocle_cds, color_by = "Cluster", cell_size = 0.5)
+plot_cell_clusters(monocle_cds, color_by = "total_features_by_counts")
 plot_cell_trajectory(monocle_cds, color_by = "Pseudotime", cell_size = 0.5)
 plot_cell_trajectory(monocle_cds, color_by = "State", cell_size = 0.5)
 plot_cell_trajectory(monocle_cds, color_by = "cancer_status", cell_size = 0.5)

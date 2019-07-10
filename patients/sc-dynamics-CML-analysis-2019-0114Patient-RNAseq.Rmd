@@ -324,17 +324,7 @@ informatived pairs, and filtering them out would reduce power.
 ## EDA and QC on the genes
 
 Next we want to filter out low abundance 
-genes. First let's look at which genes are the
-most highly expressed
-
-```{r}
-fontsize <- theme(axis.text=element_text(size=12), 
-                  axis.title=element_text(size=16))
-
-plotHighestExprs(sce, n=25, 
-                 feature_names_to_plot = "gene_name_symbol") + 
-  fontsize
-```
+genes. 
 
 We will consider the average count for each gene, 
 computed across all cells in the dataset. We calculate

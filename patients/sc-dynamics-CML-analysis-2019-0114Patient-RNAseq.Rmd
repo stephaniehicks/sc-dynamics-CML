@@ -467,8 +467,8 @@ head(hvg.out)
 
 ```{r}
 # remove MT genes for downstream analyses
-sce_sub <- sce_norm[!rowData(sce_norm)$is_feature_control, ] 
-sce_sub <- sce_sub[rownames(hvg.out), ]
+sce_norm <- sce_norm[!rowData(sce_norm)$is_feature_control, ] 
+sce_norm <- sce_norm[rownames(hvg.out), ]
 ```
 
 
@@ -478,43 +478,44 @@ sce_sub <- sce_sub[rownames(hvg.out), ]
 library(scater)
 
 # Using irlba to set up the umap for speed.
-sce_sub <- runPCA(sce_sub, ntop=Inf, method="irlba", ncomponents=20)
+sce_norm <- runPCA(sce_norm, ntop=Inf, method="irlba", ncomponents=20)
 ```
 
 ```{r umap-1}
 set.seed(1234)
-sce_sub <- runUMAP(sce_sub, ncomponents = 2, ntop=500)
-plotUMAP(sce_sub, colour_by="cancer_status") + ggtitle("umap")
-plotUMAP(sce_sub, colour_by="CD34") + ggtitle("umap")
+sce_norm <- runUMAP(sce_norm, ncomponents = 2, ntop=500)
+plotUMAP(sce_norm, colour_by="cancer_status") + ggtitle("umap")
+plotUMAP(sce_norm, colour_by="CD34") + ggtitle("umap")
 ```
 
 ```{r umap-E}
-plotUMAP(sce_sub, colour_by="HBB") + ggtitle("umap (E -- HBB)") # E
+plotUMAP(sce_norm, colour_by="HBB") + ggtitle("umap (E -- HBB)") # E
 ```
 
 ```{r umap-Ba}
-plotUMAP(sce_sub, colour_by="LMO4") + ggtitle("umap (Ba -- Lmo4)") # Ba
+plotUMAP(sce_norm, colour_by="LMO4") + ggtitle("umap (Ba -- Lmo4)") # Ba
 ```
 
 ```{r umap-MEG}
-plotUMAP(sce_sub, colour_by="ITGA2B") + ggtitle("umap (MEG -- ITGA2B)") # MEG
+plotUMAP(sce_norm, colour_by="ITGA2B") + ggtitle("umap (MEG -- ITGA2B)") # MEG
 ```
 
 ```{r umap-MPP}
-plotUMAP(sce_sub, colour_by="HLF") + ggtitle("umap (MPP -- HLF)") # MPP
+plotUMAP(sce_norm, colour_by="HLF") + ggtitle("umap (MPP -- HLF)") # MPP
 ```
 
 ```{r umap-Ly}
-plotUMAP(sce_sub, colour_by="CD79A") + ggtitle("umap (Ly -- CD79A)") # Ly
+plotUMAP(sce_norm, colour_by="CD79A") + ggtitle("umap (Ly -- CD79A)") # Ly
 ```
 
 ```{r umap-M}
-plotUMAP(sce_sub, colour_by="CSF1R") + ggtitle("umap (M -- CSF1R)") # M
+plotUMAP(sce_norm, colour_by="CSF1R") + ggtitle("umap (M -- CSF1R)") # M
 ```
 
 ```{r umap-G}
-plotUMAP(sce_sub, colour_by="MPO") + ggtitle("umap (G -- MPO)") # G
+plotUMAP(sce_norm, colour_by="MPO") + ggtitle("umap (G -- MPO)") # G
 ```
+
 
 
 # monocle
@@ -529,16 +530,18 @@ BiocManager::install("monocle")
 library(monocle)
 
 # Converting the exprs data in log scale back to original scale
-data <- 2^logcounts(sce_sub) - metadata(sce_sub)$log.exprs.offset
-pd <- as.data.frame(colData(sce_sub))
-fd <- as.data.frame(rowData(sce_sub))
+data <- 2^logcounts(sce_norm) - metadata(sce_norm)$log.exprs.offset
+pd <- as.data.frame(colData(sce_norm))
+fd <- as.data.frame(rowData(sce_norm))
 fd$gene_short_name <- rownames(fd)
 
 monocle_cds <- newCellDataSet(data, 
             phenoData = methods::new("AnnotatedDataFrame", data = pd), 
             featureData =methods::new("AnnotatedDataFrame", data = fd), 
             lowerDetectionLimit = 1, expressionFamily = negbinomial.size())
-monocle_cds@auxOrderingData$scran <- sce_sub
+monocle_cds@auxOrderingData$scran <- sce_norm
+
+rm(sce_norm)
 
 monocle_cds <- estimateSizeFactors(monocle_cds)
 monocle_cds <- estimateDispersions(monocle_cds)
@@ -562,62 +565,70 @@ disp_table <- dispersionTable(monocle_cds)
 ordering_genes <- subset(disp_table, mean_expression >= 0.1)
 dim(ordering_genes)
 
-monocle_cds2 <- setOrderingFilter(monocle_cds, ordering_genes$gene_id)
-table(fData(monocle_cds2)$use_for_ordering)
+monocle_cds <- setOrderingFilter(monocle_cds, ordering_genes$gene_id)
+table(fData(monocle_cds)$use_for_ordering)
 
-monocle_cds2 <- reduceDimension(monocle_cds2, max_components = 2, 
+monocle_cds <- reduceDimension(monocle_cds, max_components = 2, 
                                reduction_method = 'DDRTree') # this takes a while.... 
-monocle_cds2 <- orderCells(monocle_cds2)
-dim(monocle_cds2)
+monocle_cds <- orderCells(monocle_cds)
+dim(monocle_cds)
 
-plot_cell_trajectory(monocle_cds2, color_by = "Cluster", cell_size = 0.5)
-plot_cell_trajectory(monocle_cds2, color_by = "Pseudotime", cell_size = 0.5)
-plot_cell_trajectory(monocle_cds2, color_by = "State", cell_size = 0.5)
-plot_cell_trajectory(monocle_cds2, color_by = "cancer_status", cell_size = 0.5)
-plot_cell_trajectory(monocle_cds2, color_by = "phases", cell_size = 0.5)
-plot_cell_trajectory(monocle_cds2, color_by = "cellcycle_score_normalized_G1", cell_size = 0.5)
-plot_cell_trajectory(monocle_cds2, color_by = "cellcycle_score_normalized_G2M", cell_size = 0.5)
-plot_cell_trajectory(monocle_cds2, color_by = "cellcycle_score_normalized_S", cell_size = 0.5)
+saveRDS(monocle_cds, file = here("data/0114P_RNAseq/BM_CD34/cds_monocle_0114.rds"))
+rm(monocle_cds)
+```
 
-pData(monocle_cds2)$CD34 <- ifelse(exprs(monocle_cds2)[grep("CD34", rownames(monocle_cds2)), ]>0, 1, 0)
-plot_cell_trajectory(monocle_cds2, color_by = "as.factor(CD34)", cell_size = 0.5)
+
+```{r}
+monocle_cds <- readRDS(file = here("data/0114P_RNAseq/BM_CD34/cds_monocle_0114.rds"))
+
+plot_cell_trajectory(monocle_cds, color_by = "Cluster", cell_size = 0.5)
+plot_cell_trajectory(monocle_cds, color_by = "Pseudotime", cell_size = 0.5)
+plot_cell_trajectory(monocle_cds, color_by = "State", cell_size = 0.5)
+plot_cell_trajectory(monocle_cds, color_by = "cancer_status", cell_size = 0.5)
+plot_cell_trajectory(monocle_cds, color_by = "phases", cell_size = 0.5)
+plot_cell_trajectory(monocle_cds, color_by = "cellcycle_score_normalized_G1", cell_size = 0.5)
+plot_cell_trajectory(monocle_cds, color_by = "cellcycle_score_normalized_G2M", cell_size = 0.5)
+plot_cell_trajectory(monocle_cds, color_by = "cellcycle_score_normalized_S", cell_size = 0.5)
+
+pData(monocle_cds)$CD34 <- ifelse(exprs(monocle_cds)[grep("CD34", rownames(monocle_cds)), ]>0, 1, 0)
+plot_cell_trajectory(monocle_cds, color_by = "as.factor(CD34)", cell_size = 0.5)
 
 ## Multi-Potent Progenitor/MPP
-pData(monocle_cds2)$HLF <- ifelse(exprs(monocle_cds2)[grep("^HLF", rownames(monocle_cds2)), ]>0, 1, 0)
-plot_cell_trajectory(monocle_cds2, color_by = "as.factor(HLF)", cell_size = 0.5) 
+pData(monocle_cds)$HLF <- ifelse(exprs(monocle_cds)[grep("^HLF", rownames(monocle_cds)), ]>0, 1, 0)
+plot_cell_trajectory(monocle_cds, color_by = "as.factor(HLF)", cell_size = 0.5) 
 
 ## Granulocyte/macrophage progenitors/GMP
-pData(monocle_cds2)$MPO <- ifelse(exprs(monocle_cds2)[grep("^MPO", rownames(monocle_cds2)), ]>0, 1, 0)
-plot_cell_trajectory(monocle_cds2, color_by = "as.factor(MPO)", cell_size = 0.5) 
+pData(monocle_cds)$MPO <- ifelse(exprs(monocle_cds)[grep("^MPO", rownames(monocle_cds)), ]>0, 1, 0)
+plot_cell_trajectory(monocle_cds, color_by = "as.factor(MPO)", cell_size = 0.5) 
 
 ## MEP 
-pData(monocle_cds2)$ITGA2B <- ifelse(exprs(monocle_cds2)[grep("^ITGA2B", rownames(monocle_cds2)), ]>0, 1, 0)
-plot_cell_trajectory(monocle_cds2, color_by = "as.factor(ITGA2B)", cell_size = 0.5) # Megakaryocytes/MK
+pData(monocle_cds)$ITGA2B <- ifelse(exprs(monocle_cds)[grep("^ITGA2B", rownames(monocle_cds)), ]>0, 1, 0)
+plot_cell_trajectory(monocle_cds, color_by = "as.factor(ITGA2B)", cell_size = 0.5) # Megakaryocytes/MK
 
-pData(monocle_cds2)$HBB <- ifelse(exprs(monocle_cds2)[grep("^HBB", rownames(monocle_cds2)), ]>0, 1, 0)
-plot_cell_trajectory(monocle_cds2, color_by = "as.factor(HBB)", cell_size = 0.5) # Erythrocytes/E
+pData(monocle_cds)$HBB <- ifelse(exprs(monocle_cds)[grep("^HBB", rownames(monocle_cds)), ]>0, 1, 0)
+plot_cell_trajectory(monocle_cds, color_by = "as.factor(HBB)", cell_size = 0.5) # Erythrocytes/E
 
-pData(monocle_cds2)$EPOR <- ifelse(exprs(monocle_cds2)[grep("^EPOR", rownames(monocle_cds2)), ]>0, 1, 0)
-plot_cell_trajectory(monocle_cds2, color_by = "as.factor(EPOR)", cell_size = 0.5) # Erythrocytes/E
+pData(monocle_cds)$EPOR <- ifelse(exprs(monocle_cds)[grep("^EPOR", rownames(monocle_cds)), ]>0, 1, 0)
+plot_cell_trajectory(monocle_cds, color_by = "as.factor(EPOR)", cell_size = 0.5) # Erythrocytes/E
 
-pData(monocle_cds2)$LMO4 <- ifelse(exprs(monocle_cds2)[grep("^LMO4", rownames(monocle_cds2)), ]>0, 1, 0)
-plot_cell_trajectory(monocle_cds2, color_by = "as.factor(LMO4)", cell_size = 0.5) # Ba
+pData(monocle_cds)$LMO4 <- ifelse(exprs(monocle_cds)[grep("^LMO4", rownames(monocle_cds)), ]>0, 1, 0)
+plot_cell_trajectory(monocle_cds, color_by = "as.factor(LMO4)", cell_size = 0.5) # Ba
 
-pData(monocle_cds2)$CD79A <- ifelse(exprs(monocle_cds2)[grep("^CD79A", rownames(monocle_cds2)), ]>0, 1, 0)
-plot_cell_trajectory(monocle_cds2, color_by = "as.factor(CD79A)", cell_size = 0.5) # Ly
+pData(monocle_cds)$CD79A <- ifelse(exprs(monocle_cds)[grep("^CD79A", rownames(monocle_cds)), ]>0, 1, 0)
+plot_cell_trajectory(monocle_cds, color_by = "as.factor(CD79A)", cell_size = 0.5) # Ly
 
-pData(monocle_cds2)$CSF1R <- ifelse(exprs(monocle_cds2)[grep("^CSF1R", rownames(monocle_cds2)), ]>0, 1, 0)
-plot_cell_trajectory(monocle_cds2, color_by = "as.factor(CSF1R)", cell_size = 0.5) # M
+pData(monocle_cds)$CSF1R <- ifelse(exprs(monocle_cds)[grep("^CSF1R", rownames(monocle_cds)), ]>0, 1, 0)
+plot_cell_trajectory(monocle_cds, color_by = "as.factor(CSF1R)", cell_size = 0.5) # M
 
 ```
 
 
 
 ```{r}
-table(monocle_cds2$phases)
+table(monocle_cds$phases)
 
-x <- table(factor(monocle_cds2$cancer_status[monocle_cds2$cancer_status != "unknown"]), 
-      monocle_cds2$phases[monocle_cds2$cancer_status != "unknown"]) 
+x <- table(factor(monocle_cds$cancer_status[monocle_cds$cancer_status != "unknown"]), 
+      monocle_cds$phases[monocle_cds$cancer_status != "unknown"]) 
 x
 
 round(x / rowSums(x), 3)
@@ -637,23 +648,23 @@ chisq.test(x)
 # f(cancer) = f / (f + 2*(1-f) + f) = f / 2
 # therfore need to multiply by 2 to recover true cancer
 
-summary(monocle_cds2$Pseudotime)
-xx <- cut(monocle_cds2$Pseudotime, breaks = seq(0, max(monocle_cds2$Pseudotime) + 3, by = 3))
+summary(monocle_cds$Pseudotime)
+xx <- cut(monocle_cds$Pseudotime, breaks = seq(0, max(monocle_cds$Pseudotime) + 3, by = 3))
 
 n_mut <- sapply(levels(xx), function(i){
-  tmp <- monocle_cds2$cancer_status[xx == i &  !(monocle_cds2$cancer_status == "unknown")]
+  tmp <- monocle_cds$cancer_status[xx == i &  !(monocle_cds$cancer_status == "unknown")]
   sum(tmp == "mut", na.rm = TRUE)
 })
 n_mut
 
 n_wt <- sapply(levels(xx), function(i){
-  tmp <- monocle_cds2$cancer_status[xx == i &  !(monocle_cds2$cancer_status == "unknown")]
+  tmp <- monocle_cds$cancer_status[xx == i &  !(monocle_cds$cancer_status == "unknown")]
   sum(tmp == "wt", na.rm = TRUE)
 })
 n_wt
 
 frac_cancer <- sapply(levels(xx), function(i){
-  tmp <- monocle_cds2$cancer_status[xx == i &  !(monocle_cds2$cancer_status == "unknown")]
+  tmp <- monocle_cds$cancer_status[xx == i &  !(monocle_cds$cancer_status == "unknown")]
   2*sum(tmp == "mut", na.rm = TRUE) / sum(tmp %in% c("wt", "mut"), na.rm = TRUE)
 })
 

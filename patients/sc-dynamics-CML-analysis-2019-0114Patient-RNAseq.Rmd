@@ -48,7 +48,7 @@ thresholds)."
 
 ## Load data
 Read in data 
-```{r load-data, message=FALSE, eval=FALSE}
+```{r load-data, eval=FALSE}
 dat_counts <- readr::read_csv(here("data/0114P_RNAseq/BM_CD34/mycounts_2.csv")),
                               col_names = FALSE) # dat is 445.8 MB in size
 dat_counts <- t(dat_counts) # flip to make cells along columns
@@ -121,7 +121,6 @@ library(SingleCellExperiment)
 library(scater)
 sce <- readRDS(here("data/0114P_RNAseq/BM_CD34/sce_0114.rds"))
 ```
-
 
 Histogram of library sizes and number 
 of expressed genes.
@@ -282,13 +281,13 @@ p1 <- as.data.frame(colData(sce)) %>%
   ggplot(aes(x=cellcycle_score_G1, y=cellcycle_score_G2M, 
              color = cancer_status)) +
   geom_point()
+p1
 
 p2 <- as.data.frame(colData(sce)) %>% 
   ggplot(aes(x=cellcycle_score_G1, y=cellcycle_score_G2M, 
              color = phases)) + 
   geom_point()
-
-plot_grid(p1, p2, ncol=2, labels = LETTERS[1:2])
+p2 
 ```
 
 Let's save this figure.
@@ -319,7 +318,6 @@ applying cyclone. Even if a gene is not expressed in any cell,
 it may still be useful for classification if it is phase-specific. 
 Its lack of expression relative to other genes will still yield 
 informatived pairs, and filtering them out would reduce power.
-
 
 ## EDA and QC on the genes
 
@@ -352,6 +350,9 @@ genes that are expressed in fewer than $N$ cells.
 
 ```{r}
 num.cells <- nexprs(sce, byrow=TRUE)
+```
+
+```{r, eval=FALSE}
 smoothScatter(log10(ave.counts), num.cells, ylab="Number of cells", 
     xlab=expression(Log[10]~"average count"))
 ```
@@ -406,9 +407,10 @@ saveRDS(sce_norm, file = here("data/0114P_RNAseq/BM_CD34/sce_norm_0114.rds"))
 ```
 
 
+
 ## Filter for highly variable genes
 
-```{r}
+```{r, eval=FALSE}
 sce_norm <- readRDS(here("data/0114P_RNAseq/BM_CD34/sce_norm_0114.rds"))
 
 library(scran)
@@ -421,7 +423,7 @@ sce_norm <- sce_norm[, keep_cell_MT]
 sce_norm
 ```
 
-```{r}
+```{r, eval=FALSE}
 var.fit <- trendVar(sce_norm, parametric=FALSE)
 var.out <- decomposeVar(sce_norm, var.fit)
 var.out$gene_name_symbol <- rowData(sce_norm)$gene_name_symbol
@@ -437,7 +439,7 @@ that is significantly greater than zero. We use a false discovery
 rate (FDR) of 5% after correcting for multiple testing with 
 the Benjamini-Hochberg method.
 
-```{r}
+```{r, eval=FALSE}
 hvg.out <- var.out[which(var.out$FDR <= 0.05),]
 nrow(hvg.out)
 ```
@@ -450,67 +452,49 @@ to prioritize HVGs that are more likely to be true positives but,
 at the same time, less likely to be interesting. This is because 
 the ratio can be very large for HVGs that have very low total 
 variance and do not contribute much to the cell-cell heterogeneity.
-```{r}
+```{r, eval=FALSE}
 hvg.out <- hvg.out[order(hvg.out$bio, decreasing=TRUE),] 
 head(hvg.out)
 ```
 
-```{r}
+```{r, eval=FALSE}
 # remove MT genes for downstream analyses
 sce_norm <- sce_norm[!rowData(sce_norm)$is_feature_control, ] 
 sce_norm <- sce_norm[rownames(hvg.out), ]
 ```
 
-
 ## Dimensionality reduction 
 
-```{r}
+```{r, eval=FALSE}
 library(scater)
 
 # Using irlba to set up the umap for speed.
 sce_norm <- runPCA(sce_norm, ntop=Inf, method="irlba", ncomponents=20)
 ```
 
-```{r umap-1}
+```{r, eval=FALSE}
 set.seed(1234)
 sce_norm <- runUMAP(sce_norm, ncomponents = 2, ntop=500)
 plotUMAP(sce_norm, colour_by="cancer_status") + ggtitle("umap")
 plotUMAP(sce_norm, colour_by="CD34") + ggtitle("umap")
 ```
 
-```{r umap-E}
+
+```{r, eval=FALSE}
 plotUMAP(sce_norm, colour_by="HBB") + ggtitle("umap (E -- HBB)") # E
-```
-
-```{r umap-Ba}
 plotUMAP(sce_norm, colour_by="LMO4") + ggtitle("umap (Ba -- Lmo4)") # Ba
-```
-
-```{r umap-MEG}
 plotUMAP(sce_norm, colour_by="ITGA2B") + ggtitle("umap (MEG -- ITGA2B)") # MEG
-```
-
-```{r umap-MPP}
 plotUMAP(sce_norm, colour_by="HLF") + ggtitle("umap (MPP -- HLF)") # MPP
-```
-
-```{r umap-Ly}
 plotUMAP(sce_norm, colour_by="CD79A") + ggtitle("umap (Ly -- CD79A)") # Ly
-```
-
-```{r umap-M}
 plotUMAP(sce_norm, colour_by="CSF1R") + ggtitle("umap (M -- CSF1R)") # M
-```
-
-```{r umap-G}
 plotUMAP(sce_norm, colour_by="MPO") + ggtitle("umap (G -- MPO)") # G
 ```
 
 
 
-# monocle
+## trajectory analysis
 
-Install and load monocle3
+Install and load monocle
 
 ```{r, eval=FALSE}
 BiocManager::install("monocle")
@@ -569,15 +553,14 @@ library(monocle)
 monocle_cds <- readRDS(file = here("data/0114P_RNAseq/BM_CD34/cds_monocle_0114.rds"))
 
 plot_cell_trajectory(monocle_cds, color_by = "Cluster", cell_size = 0.5)
-plot_cell_clusters(monocle_cds, color_by = "total_features_by_counts")
 plot_cell_trajectory(monocle_cds, color_by = "Pseudotime", cell_size = 0.5)
 plot_cell_trajectory(monocle_cds, color_by = "State", cell_size = 0.5)
 plot_cell_trajectory(monocle_cds, color_by = "cancer_status", cell_size = 0.5)
 plot_cell_trajectory(monocle_cds, color_by = "phases", cell_size = 0.5)
-plot_cell_trajectory(monocle_cds, color_by = "cellcycle_score_normalized_G1", cell_size = 0.5)
 plot_cell_trajectory(monocle_cds, color_by = "cellcycle_score_normalized_G2M", cell_size = 0.5)
-plot_cell_trajectory(monocle_cds, color_by = "cellcycle_score_normalized_S", cell_size = 0.5)
+```
 
+```{r}
 pData(monocle_cds)$CD34 <- ifelse(exprs(monocle_cds)[grep("CD34", rownames(monocle_cds)), ]>0, 1, 0)
 plot_cell_trajectory(monocle_cds, color_by = "as.factor(CD34)", cell_size = 0.5)
 
@@ -598,7 +581,10 @@ plot_cell_trajectory(monocle_cds, color_by = "as.factor(HBB)", cell_size = 0.5) 
 
 pData(monocle_cds)$EPOR <- ifelse(exprs(monocle_cds)[grep("^EPOR", rownames(monocle_cds)), ]>0, 1, 0)
 plot_cell_trajectory(monocle_cds, color_by = "as.factor(EPOR)", cell_size = 0.5) # Erythrocytes/E
+```
 
+To reduce the size of the file, we'll not evaluate these
+```{r,eval=FALSE}
 pData(monocle_cds)$LMO4 <- ifelse(exprs(monocle_cds)[grep("^LMO4", rownames(monocle_cds)), ]>0, 1, 0)
 plot_cell_trajectory(monocle_cds, color_by = "as.factor(LMO4)", cell_size = 0.5) # Ba
 
@@ -607,10 +593,10 @@ plot_cell_trajectory(monocle_cds, color_by = "as.factor(CD79A)", cell_size = 0.5
 
 pData(monocle_cds)$CSF1R <- ifelse(exprs(monocle_cds)[grep("^CSF1R", rownames(monocle_cds)), ]>0, 1, 0)
 plot_cell_trajectory(monocle_cds, color_by = "as.factor(CSF1R)", cell_size = 0.5) # M
-
 ```
 
-
+Let's look again at the relationship between 
+the proportion of cells in each cell cycle phase. 
 
 ```{r}
 table(monocle_cds$phases)
@@ -624,7 +610,8 @@ chisq.test(x)
 
 ```
 
-# Fraction of cancer cells
+Let's also calculate the fraction of mutations along
+the trajectory. 
 
 ```{r}
 # p(true cancer cell | obs wt cell) = 

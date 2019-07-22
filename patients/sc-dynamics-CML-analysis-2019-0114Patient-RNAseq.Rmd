@@ -14,6 +14,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, 
                       message = FALSE)
 library(here)
+data_path <- "/users/shicks1/data/10X/sc-dynamics-cml/All_patient_data/0114"
 ```
 
 # Summary of patient data
@@ -22,12 +23,10 @@ This is scRNA-seq (10X Genomics platform) data from a MPN patient
 (denoted `0114` patient) from Jan 14, 2019. The data is available 
 on the JHPCE cluster and the following files are in the folder: 
 
-- `barcodes_2.tsv`: barcode sequences of the detected cells.
-- `features.tsv`: names of the genes (columns of the count matrix)
-- `mycounts_2.csv`: count matrix (445.8 MB in size). The rows are the cells and the columns are the genes (6598 cells, 33694 genes). Each entry is the number of detected transcripts of a given gene in a given cell.
-- `mygroupings_threshold_NS_100_Rev2.csv`: contains the number of wild-type or cancer transcripts detected in each cell. The columns are the cells (same number as the rows of the count matrix). There are two rows. Row 1 is the number of WT Jak2 transcripts. Row 2 is the number of cancer Jak2 transcripts.
-
-The count matrix above is from our first sequencing run on this patient library. However, it has since been resequenced to increase depth by a factor of 3. This higher-depth data should be available by our meeting in Boston on March 8, 2019. 
+- `0114/barcodes.tsv`: barcode sequences of the detected cells.
+- `0114/features.tsv`: names of the genes (columns of the count matrix)
+- `0114/matrix.mtx`: count matrix (445.8 MB in size). The rows are the cells and the columns are the genes (9931 cells, 33694 genes). Each entry is the number of detected transcripts of a given gene in a given cell.
+- `Python_AnnData_NS_Run2_100_All_Cells` (called by Illumina) and `Python_AnnData_PacBio_1_All_Cells_0114` (called by packbio): contains the number of wild-type or cancer transcripts detected in each cell. The columns are the cells (same number as the rows of the count matrix). There are two rows. Row 1 is the number of WT Jak2 transcripts. Row 2 is the number of cancer Jak2 transcripts.
 
 ## Previous analyses reported by Sahand
 
@@ -42,75 +41,93 @@ thresholds)."
 
 * Interested in identifying genes that are over-expressed or under-expressed in the cancer cells.
 * Are there differences between cancer and normal cells in genes that regulate cell cycle?
-* Hypothesis: Previous analyses suggested the gene E2F4 is over expressed in the cancer cells.
+  * _Hypothesis_: Previous analyses suggested the gene E2F4 is over expressed in the cancer cells.
+
+## Goals
+
+1. Using Monocle (or Seurat) to construct the differentiation trajectories for each patient obtaining a pseudo time value for each cell in the data set.
+2. Plotting the fraction of cancer cells as a function of pseudo time for each patient.
+3. Obtaining changes in gene expression profiles as a function of pseudo-time using generalized additive models.
+4. Extending the GAM models so that the cancer cells/ wt cells are fit differently in the generalized additive models so that we can see how gene expression profiles as a function of pseudo time are different between the cancer and wild-type cells.
+
 
 # Data Analysis
 
 ## Load data
-Read in data 
-```{r load-data, eval=FALSE}
-dat_counts <- readr::read_csv(here("data/0114P_RNAseq/BM_CD34/mycounts_2.csv")),
-                              col_names = FALSE) # dat is 445.8 MB in size
-dat_counts <- t(dat_counts) # flip to make cells along columns
 
-dat_muts <- readr::read_csv(here(
-  "data/0114P_RNAseq/BM_CD34/mygroupings_threshold_NS_100_Rev2.csv"), 
-  col_names = FALSE)
-dat_features <- readr::read_tsv(here(
-  "data/0114P_RNAseq/BM_CD34/features.tsv"), 
-  col_names = FALSE)
-dat_barcodes <- readr::read_tsv(here(
-  "data/0114P_RNAseq/BM_CD34/barcodes_2.tsv"), 
-  col_names = FALSE)
+If the files are still in a `.gz` format, then unzip, 
+rename `features.tsv` to `genes.tsv` because 
+`DropletUtils::read10xCounts()` function expects the 
+default `genes.tsv`. 
+
+```{r , eval=FALSE}
+unzip_files <- list.files(data_path, pattern = ".gz")
+
+if(length(unzip_files) > 0){
+  sapply(file.path(data_path, unzip_files), R.utils::gunzip)
+
+  file.rename(from = file.path(data_path, "features.tsv"), 
+              to = file.path(data_path, "genes.tsv"))
+}
 ```
 
-Create a `SingleCellExperiment` object
-```{r create-sce-object, message=FALSE, eval=FALSE}
+Next, we read in data using the 
+`DropletUtils::read10xCounts()` function and create 
+a `SingleCellExperiment` object. 
+
+```{r create-sce-object, eval=FALSE}
+library(DropletUtils)
 library(SingleCellExperiment)
 
-# row meta data 
-sce_rowData <- as.data.frame(dat_features[,1:2])
-colnames(sce_rowData) <- c("gene_name_ensembl", 
-                           "gene_name_symbol")
-rownames(sce_rowData) <- sce_rowData$gene_name_ensembl
+sce <- read10xCounts(data_path)
+colnames(rowData(sce))[1:2] <- c("gene_name_ensembl", "gene_name_symbol")
 
-# column meta data 
-sce_colData <- data.frame("jak2_reads_wt" = as.numeric(dat_muts[1, -1]), 
-                          "jak2_reads_cancer" = as.numeric(dat_muts[2, -1]))
-rownames(sce_colData) <- dat_barcodes$X1
+sce
+```
 
-# counts matrix 
-rownames(dat_counts) <- sce_rowData$gene_name_ensembl
-colnames(dat_counts) <- dat_barcodes$X1
+We also add the mutation information to the `colData`
+```{r add-mut-info, eval=FALSE}
+# calls from Illumina
+dat_muts_illumina <- readr::read_csv(file.path(data_path, 
+                                      "Python_AnnData_NS_Run2_100_All_Cells.csv"))
+colnames(dat_muts_illumina) <- c("jak2_illumina_wt", "jak2_illumina_cancer")
 
-sce <- SingleCellExperiment(assays = list(counts = dat_counts), 
-          rowData = sce_rowData, colData = sce_colData)
+# calls from pacbio
+dat_muts_pacbio <- readr::read_csv(file.path(data_path,
+                                      "Python_AnnData_PacBio_1_All_Cells_0114.csv"))
+colnames(dat_muts_pacbio) <- c("jak2_pacbio_wt", "jak2_pacbio_cancer")
+
+colData(sce) <- cbind(colData(sce), dat_muts_illumina, dat_muts_pacbio)
 ```
 
 ## Quality control 
 
-```{r scater-qc-basic, message=FALSE, eval=FALSE}
+```{r scater-qc-basic, eval=FALSE}
 library(scater)
 
 sce <- getBMFeatureAnnos(sce, 
             ids = rownames(sce),
             filters = "ensembl_gene_id", 
-            attributes = c("ensembl_gene_id", "hgnc_symbol",
+            attributes = c("hgnc_symbol",
                            "chromosome_name", "gene_biotype",
                            "start_position", "end_position"),
             biomart = "ENSEMBL_MART_ENSEMBL", 
             dataset = "hsapiens_gene_ensembl",
             host = "www.ensembl.org")
 
+rowData(sce)$gene_name_unique <- 
+  uniquifyFeatureNames(rowData(sce)$gene_name_ensembl, 
+                     rowData(sce)$hgnc_symbol)
+
 # separate information about mitochondrial genes
-rowData(sce)[grep("^MT-", rowData(sce)$gene_name_symbol),]
-isSpike(sce, "MT") <- grepl("^MT-", rowData(sce)$gene_name_symbol)
+rowData(sce)[grep("^MT-", rowData(sce)$gene_name_unique),]
+isSpike(sce, "MT") <- grepl("^MT-", rowData(sce)$gene_name_unique)
 
 # calculate QC metrics
 sce <- calculateQCMetrics(sce)
 
 # save SCE object
-saveRDS(sce, file = here("data/0114P_RNAseq/BM_CD34/sce_0114.rds"))
+saveRDS(sce, file = file.path(data_path, "sce_0114.rds"))
 ```
 
 
@@ -119,7 +136,7 @@ saveRDS(sce, file = here("data/0114P_RNAseq/BM_CD34/sce_0114.rds"))
 ```{r}
 library(SingleCellExperiment)
 library(scater)
-sce <- readRDS(here("data/0114P_RNAseq/BM_CD34/sce_0114.rds"))
+sce <- readRDS(file.path(data_path, "sce_0114.rds"))
 ```
 
 Histogram of library sizes and number 
@@ -133,11 +150,20 @@ hist(sce$total_features_by_counts, xlab="Number of expressed genes", main="",
 ```
 
 Here is a table of the number of wild-type or cancer transcripts
-detected in each cell covering Jak2. There are e.g. 11 cells that 
-both have 1 read from the wildtype and cancer transcripts. 
+detected in each cell covering Jak2. Using the Illumina calls, 
+there are e.g. 11 cells that both have 1 read from the wildtype 
+and cancer transcripts. 
 
 ```{r}
-table(sce$jak2_reads_cancer, sce$jak2_reads_wt)
+table(sce$jak2_illumina_cancer, sce$jak2_illumina_wt)
+table(sce$jak2_pacbio_cancer, sce$jak2_pacbio_wt)
+```
+
+Here is the table of mutant calls from illumina and 
+pacbio to see the level of agreement. 
+
+```{r}
+table(sce$jak2_illumina_cancer, sce$jak2_pacbio_cancer)
 ```
 
 Following up with Sahand from our March 8 jam session in Boston, 
@@ -145,10 +171,22 @@ we assume that if we see at least one mutant/cancer read covering
 Jak2, then we call it a cancer cell.  
 
 ```{r}
-sce$cancer_status <- ifelse(sce$jak2_reads_cancer > 0, "mut", 
-  ifelse((sce$jak2_reads_cancer < 1 & sce$jak2_reads_wt > 0), "wt", "unknown" ))
-sce$cancer_status <- factor(sce$cancer_status, levels=c("wt", "mut", "unknown"))
-table(sce$cancer_status)
+sce$cancer_status_illumina <- ifelse(sce$jak2_illumina_cancer > 0, "mut", 
+  ifelse((sce$jak2_illumina_cancer < 1 & sce$jak2_illumina_wt > 0), "wt", "unknown" ))
+sce$cancer_status_illumina <- factor(sce$cancer_status_illumina, 
+                                     levels=c("wt", "mut", "unknown"))
+table(sce$cancer_status_illumina)
+
+sce$cancer_status_pacbio <- ifelse(sce$jak2_pacbio_cancer > 0, "mut", 
+  ifelse((sce$jak2_pacbio_cancer < 1 & sce$jak2_pacbio_wt > 0), "wt", "unknown" ))
+sce$cancer_status_pacbio <- factor(sce$cancer_status_pacbio, 
+                                   levels=c("wt", "mut", "unknown"))
+table(sce$cancer_status_pacbio)
+```
+
+Here is the able of agreement between the two types of calls
+```{r}
+table(sce$cancer_status_illumina, sce$cancer_status_pacbio)
 ```
 
 Let's look at the distribution of total counts and number 
@@ -156,36 +194,60 @@ of expressed genes when we stratify by the number of cancer
 reads or wild type reads. Also what happens when you stratify 
 by cancer status
 
+This is with the Illumina calls
+
 ```{r, fig.height=8, fig.width=12}
 par(mfrow=c(2,3))
-boxplot(sce$total_counts ~ sce$jak2_reads_cancer, log="y", 
-        main = "jak2_reads_cancer", ylab = "total_counts" )
-boxplot(sce$total_counts ~ sce$jak2_reads_wt, log="y", 
-        main = "jak2_read_wt", ylab = "total_counts")
-boxplot(sce$total_counts ~ sce$cancer_status, log="y", 
-        main = "cancer_status", ylab = "total_counts")
+boxplot(sce$total_counts ~ sce$jak2_illumina_cancer, log="y", 
+        main = "jak2_illumina_cancer", ylab = "total_counts" )
+boxplot(sce$total_counts ~ sce$jak2_illumina_wt, log="y", 
+        main = "jak2_illumina_wt", ylab = "total_counts")
+boxplot(sce$total_counts ~ sce$cancer_status_illumina, log="y", 
+        main = "cancer_status_illumina", ylab = "total_counts")
 
-boxplot(sce$total_features_by_counts ~ sce$jak2_reads_cancer, log="y", 
-        main = "jak2_reads_cancer", ylab = "total_features_by_counts" )
-boxplot(sce$total_features_by_counts ~ sce$jak2_reads_wt, log="y", 
-        main = "jak2_read_wt", ylab = "total_features_by_counts")
-boxplot(sce$total_features_by_counts ~ sce$cancer_status, log="y", 
-        main = "cancer_status", ylab = "total_features_by_counts")
+boxplot(sce$total_features_by_counts ~ sce$jak2_illumina_cancer, log="y", 
+        main = "jak2_illumina_cancer", ylab = "total_features_by_counts" )
+boxplot(sce$total_features_by_counts ~ sce$jak2_illumina_wt, log="y", 
+        main = "jak2_illumina_wt", ylab = "total_features_by_counts")
+boxplot(sce$total_features_by_counts ~ sce$cancer_status_illumina, log="y", 
+        main = "cancer_status_illumina", ylab = "total_features_by_counts")
+```
+
+This is with the PacBio calls
+
+```{r, fig.height=8, fig.width=12}
+par(mfrow=c(2,3))
+boxplot(sce$total_counts ~ sce$jak2_pacbio_cancer, log="y", 
+        main = "jak2_pacbio_cancer", ylab = "total_counts" )
+boxplot(sce$total_counts ~ sce$jak2_pacbio_wt, log="y", 
+        main = "jak2_pacbio_wt", ylab = "total_counts")
+boxplot(sce$total_counts ~ sce$cancer_status_pacbio, log="y", 
+        main = "cancer_status_pacbio", ylab = "total_counts")
+
+boxplot(sce$total_features_by_counts ~ sce$jak2_pacbio_cancer, log="y", 
+        main = "jak2_pacbio_cancer", ylab = "total_features_by_counts" )
+boxplot(sce$total_features_by_counts ~ sce$jak2_pacbio_wt, log="y", 
+        main = "jak2_pacbio_wt", ylab = "total_features_by_counts")
+boxplot(sce$total_features_by_counts ~ sce$cancer_status_pacbio, log="y", 
+        main = "cancer_status_pacbio", ylab = "total_features_by_counts")
 ```
 
 We should also look at the percent of reads mapping to MT genes, 
 which could be evidence that we should exclude these cells
 
-```{r, fig.width=8}
-par(mfrow=c(1,2))
-boxplot(sce$pct_counts_MT ~ sce$cancer_status, ylim = c(0, 50), 
-        ylab = "pct_counts_MT", main = "cancer_status")
+```{r, fig.width=8, fig.width=12, eval=FALSE}
+par(mfrow=c(2,2))
+boxplot(sce$pct_counts_MT ~ sce$cancer_status_illumina, ylim = c(0, 50), 
+        ylab = "pct_counts_MT", main = "cancer_status_illumina")
+plot(sce$total_features_by_counts, sce$pct_counts_MT)
+
+boxplot(sce$pct_counts_MT ~ sce$cancer_status_pacbio, ylim = c(0, 50), 
+        ylab = "pct_counts_MT", main = "cancer_status_pacbio")
 plot(sce$total_features_by_counts, sce$pct_counts_MT)
 ```
 
 There are definitely cells that have much higher pct MT
 in the `unknown` cancer status group. 
-
 
 ### Remove low-quality cells 
 
@@ -203,12 +265,16 @@ libsize.drop <- isOutlier(sce$total_counts, nmads=3, type="lower", log=TRUE)
 feature.drop <- isOutlier(sce$total_features_by_counts, nmads=3, type="lower", log=TRUE)
 MT.drop <- isOutlier(sce$pct_counts_MT, nmads=3, type="higher", log=TRUE)
 
-data.frame(ByLibSize=sum(libsize.drop), ByFeature=sum(feature.drop), 
-    BySpike=sum(MT.drop), Remaining=ncol(sce))
+data.frame(ByLibSize=sum(libsize.drop), 
+           ByFeature=sum(feature.drop), 
+           BySpike=sum(MT.drop), 
+           Remaining = ncol(sce) - sum(libsize.drop) - sum(feature.drop) - sum(MT.drop))
 
 sce <- sce[,!(libsize.drop | feature.drop | MT.drop)]
+```
 
-# sanity check
+Just as a sanity check
+```{r, eval=FALSE}
 par(mfrow=c(1,1))
 plot(sce$total_features_by_counts, sce$pct_counts_MT)
 ```
@@ -233,10 +299,10 @@ gene in our dataset to match up with the names in the pre-trained
 set of gene pairs.
 
 Then, this can take a while to run. 
-```{r, eval=FALSE}
+```{r}
 library(scran)
 human.pairs <- readRDS(system.file("exdata", "human_cycle_markers.rds", package="scran"))
-assigned <- cyclone(sce, pairs=human.pairs, gene.names=rowData(sce)$ensembl_gene_id)
+assigned <- cyclone(sce, pairs=human.pairs, gene.names=rowData(sce)$gene_name_ensembl)
 ```
 
 The cyclone result for each cell in the dataset is shown above. 
@@ -251,7 +317,7 @@ if the G2/M score is above 0.5 and greater than the G1 score;
 and in S phase if neither score is above 0.5. We save these 
 assignments into the `SingleCellExperiment` object for later use.
 
-```{r, eval=FALSE}
+```{r}
 sce$phases <- assigned$phases
 sce$cellcycle_score_G1 <- assigned$score$G1
 sce$cellcycle_score_G2M <- assigned$score$G2M
@@ -260,20 +326,20 @@ sce$cellcycle_score_normalized_G1 <- assigned$normalized.scores$G1
 sce$cellcycle_score_normalized_G2M <- assigned$normalized.scores$G2M
 sce$cellcycle_score_normalized_S <- assigned$normalized.scores$S
 
-saveRDS(sce, file = here("data/0114P_RNAseq/BM_CD34/sce_qc_0114.rds"))
+saveRDS(sce, file = file.path(data_path, "sce_qc_0114.rds"))
 ```
 
 We can plot the cell cycle scores for 
 G1 and G2M phases. 
 
-```{r, fig.width=8}
+```{r}
 library(SingleCellExperiment)
 library(scater)
 
-sce <- readRDS(here("data/0114P_RNAseq/BM_CD34/sce_qc_0114.rds"))
+sce <- readRDS(file.path(data_path, "sce_qc_0114.rds"))
 ```
 
-```{r}
+```{r, fig.width=8}
 library(tidyverse)
 library(cowplot)
 
@@ -281,19 +347,19 @@ p1 <- as.data.frame(colData(sce)) %>%
   ggplot(aes(x=cellcycle_score_G1, y=cellcycle_score_G2M, 
              color = cancer_status)) +
   geom_point()
-p1
 
 p2 <- as.data.frame(colData(sce)) %>% 
   ggplot(aes(x=cellcycle_score_G1, y=cellcycle_score_G2M, 
              color = phases)) + 
   geom_point()
-p2 
+
+cowplot::plot_grid(p1, p2, ncol=2, labels = LETTERS[1:2]) 
 ```
 
 Let's save this figure.
-```{r, eval=FALSE}
-pdf(here("figures/2019-03-07-cell-cycle.pdf"), width=12,height=4)
-plot_grid(p1, p2, ncol=2, labels = LETTERS[1:2])
+```{r}
+pdf(here::here("figures/2019-07-22-cell-cycle.pdf"), width=12,height=4)
+cowplot::plot_grid(p1, p2, ncol=2, labels = LETTERS[1:2])
 dev.off()
 ```
 
@@ -302,8 +368,17 @@ proportion of cells in each cell cycle phase
 ```{r}
 table(sce$phases)
 
-x <- table(factor(sce$cancer_status[sce$cancer_status != "unknown"]), 
-      sce$phases[sce$cancer_status != "unknown"]) 
+x <- table(factor(sce$cancer_status_illumina[sce$cancer_status_illumina != "unknown"]), 
+      sce$phases[sce$cancer_status_illumina != "unknown"]) 
+x
+
+round(x / rowSums(x), 3)
+chisq.test(x) 
+```
+
+```{r}
+x <- table(factor(sce$cancer_status_pacbio[sce$cancer_status_pacbio != "unknown"]), 
+      sce$phases[sce$cancer_status_pacbio != "unknown"]) 
 x
 
 round(x / rowSums(x), 3)
@@ -322,58 +397,16 @@ informatived pairs, and filtering them out would reduce power.
 ## EDA and QC on the genes
 
 Next we want to filter out low abundance 
-genes. 
-
-We will consider the average count for each gene, 
-computed across all cells in the dataset. We calculate
-this using the `calcAverage()` function, which also 
-performs some adjustment for library size differences 
-between cells. 
+genes. Here, we keep only those genes that 
+have at least 1 UMI in at least 5% of the data. 
 
 ```{r}
-# Remove genes not greater than a certain threshold in avg expression
-par(mfrow=c(1,1))
-ave.counts <- calcAverage(sce, use_size_factors=FALSE)
-hist(log10(ave.counts), breaks=100, main="", col="grey80", 
-    xlab=expression(Log[10]~"average count"))
+num_reads <- 1
+num_cells <- 0.05*ncol(sce)
+keep <- which(rowSums(as.matrix(counts(sce)[1:10,]) >= num_reads ) >= floor(num_cells))
+sce <- sce[keep,]
+sce
 ```
-
-We see a lot of genes are really lowly expressed! 
-
-We can also look at genes expressed in at least $N$ cells. 
-This is closely related to the average count for most genes, 
-as expression in many cells will result in a higher average. 
-Genes expressed in very few cells are often uninteresting as 
-they are driven by amplification artifacts (though they may 
-also also arise from rare populations). We could then remove 
-genes that are expressed in fewer than $N$ cells.
-
-```{r}
-num.cells <- nexprs(sce, byrow=TRUE)
-```
-
-```{r, eval=FALSE}
-smoothScatter(log10(ave.counts), num.cells, ylab="Number of cells", 
-    xlab=expression(Log[10]~"average count"))
-```
-
-This plot suggestions we should consider removing genes 
-with a min average gene expression of 0.01 
-(or -3 or -2 on `log10` scale). We also remove genes without 
-expression in at least 1 cell. Finally, I needed to 
-remove a cell that had zero reads in the MT genes
-which will cause trouble for normalization if not
-addressed here. 
-```{r}
-keep_feature <- (num.cells > 1) & (log10(ave.counts) > -3)
-keep_cell_MT <- !(colSums(counts(sce[isSpike(sce), ])) == 0)
-table(keep_feature)
-table(keep_cell_MT)
-
-sce_norm <- sce[keep_feature, keep_cell_MT]
-sce_norm
-```
-
 
 ## Normalization
 
@@ -382,28 +415,28 @@ using the deconvolution method (Lun, Bach, and Marioni 2016).
 This is done with pre-clustering through `quickCluster()`
 to avoid pooling together very different cells.
 
-```{r, eval=FALSE}
+```{r}
 library(scran)
 
 set.seed(1000)
-clusters <- quickCluster(sce_norm, method="igraph", min.mean=0.01)
+clusters <- quickCluster(sce, method="igraph", min.mean=0.01)
 table(clusters)
 
-sce_norm <- computeSumFactors(sce_norm, min.mean=0.01, clusters=clusters)
+sce <- computeSumFactors(sce, min.mean=0.01, clusters=clusters)
 summary(sizeFactors(sce_norm))
 ```
 
-```{r, eval=FALSE}
-sce_norm <- computeSpikeFactors(sce_norm, type="MT", general.use=FALSE)
+```{r}
+sce <- computeSpikeFactors(sce, type="MT", general.use=FALSE)
 ```
 
 Finally, normalized log-expression values are computed for
 each endogenous gene or spike-in transcript using the
 appropriate size factors.
 
-```{r, eval=FALSE}
-sce_norm <- normalize(sce_norm)
-saveRDS(sce_norm, file = here("data/0114P_RNAseq/BM_CD34/sce_norm_0114.rds"))
+```{r}
+sce <- normalize(sce)
+saveRDS(sce, file = file.path(data_path, "sce_norm_0114.rds"))
 ```
 
 
@@ -411,7 +444,7 @@ saveRDS(sce_norm, file = here("data/0114P_RNAseq/BM_CD34/sce_norm_0114.rds"))
 ## Filter for highly variable genes
 
 ```{r, eval=FALSE}
-sce_norm <- readRDS(here("data/0114P_RNAseq/BM_CD34/sce_norm_0114.rds"))
+sce_norm <- readRDS(file.path(data_path, "sce_norm_0114.rds"))
 
 library(scran)
 rownames(sce_norm) = scater::uniquifyFeatureNames(
@@ -548,7 +581,7 @@ rm(monocle_cds)
 ```
 
 
-```{r}
+```{r, eval=FALSE}
 library(monocle)
 monocle_cds <- readRDS(file = here("data/0114P_RNAseq/BM_CD34/cds_monocle_0114.rds"))
 
@@ -560,7 +593,7 @@ plot_cell_trajectory(monocle_cds, color_by = "phases", cell_size = 0.5)
 plot_cell_trajectory(monocle_cds, color_by = "cellcycle_score_normalized_G2M", cell_size = 0.5)
 ```
 
-```{r}
+```{r, eval=FALSE}
 pData(monocle_cds)$CD34 <- ifelse(exprs(monocle_cds)[grep("CD34", rownames(monocle_cds)), ]>0, 1, 0)
 plot_cell_trajectory(monocle_cds, color_by = "as.factor(CD34)", cell_size = 0.5)
 
@@ -584,7 +617,7 @@ plot_cell_trajectory(monocle_cds, color_by = "as.factor(EPOR)", cell_size = 0.5)
 ```
 
 To reduce the size of the file, we'll not evaluate these
-```{r,eval=FALSE}
+```{r, eval=FALSE}
 pData(monocle_cds)$LMO4 <- ifelse(exprs(monocle_cds)[grep("^LMO4", rownames(monocle_cds)), ]>0, 1, 0)
 plot_cell_trajectory(monocle_cds, color_by = "as.factor(LMO4)", cell_size = 0.5) # Ba
 
@@ -598,7 +631,7 @@ plot_cell_trajectory(monocle_cds, color_by = "as.factor(CSF1R)", cell_size = 0.5
 Let's look again at the relationship between 
 the proportion of cells in each cell cycle phase. 
 
-```{r}
+```{r, eval=FALSE}
 table(monocle_cds$phases)
 
 x <- table(factor(monocle_cds$cancer_status[monocle_cds$cancer_status != "unknown"]), 
@@ -607,13 +640,12 @@ x
 
 round(x / rowSums(x), 3)
 chisq.test(x) 
-
 ```
 
 Let's also calculate the fraction of mutations along
 the trajectory. 
 
-```{r}
+```{r, eval=FALSE}
 # p(true cancer cell | obs wt cell) = 
 #     P(obs wt | true cancer) * p(true cancer)   \ 
 #     (P(obs wt | true cancer) * p(true cancer)  + P(obs wt | not cancer) * p(not cancer) ) = 

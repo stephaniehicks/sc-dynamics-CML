@@ -1,5 +1,5 @@
 ---
-title: Analysis of scRNA-seq data from CML patient 0114 (Jan 14, 2019)
+title: Analysis of scRNA-seq data from CML patient 0114
 author: Stephanie Hicks
 output: 
     html_document:
@@ -23,9 +23,9 @@ This is scRNA-seq (10X Genomics platform) data from a MPN patient
 (denoted `0114` patient) from Jan 14, 2019. The data is available 
 on the JHPCE cluster and the following files are in the folder: 
 
-- `0114/barcodes.tsv`: barcode sequences of the detected cells.
-- `0114/features.tsv`: names of the genes (columns of the count matrix)
-- `0114/matrix.mtx`: count matrix (445.8 MB in size). The rows are the cells and the columns are the genes (9931 cells, 33694 genes). Each entry is the number of detected transcripts of a given gene in a given cell.
+- `barcodes.tsv.gz`: barcode sequences of the detected cells.
+- `features.tsv.gz`: names of the genes (columns of the count matrix)
+- `matrix.mtx.gz`: count matrix. 
 - `Python_AnnData_NS_Run2_100_All_Cells` (called by Illumina) and `Python_AnnData_PacBio_1_All_Cells_0114` (called by packbio): contains the number of wild-type or cancer transcripts detected in each cell. The columns are the cells (same number as the rows of the count matrix). There are two rows. Row 1 is the number of WT Jak2 transcripts. Row 2 is the number of cancer Jak2 transcripts.
 
 ## Previous analyses reported by Sahand
@@ -108,7 +108,7 @@ library(scater)
 sce <- getBMFeatureAnnos(sce, 
             ids = rownames(sce),
             filters = "ensembl_gene_id", 
-            attributes = c("hgnc_symbol",
+            attributes = c("ensembl_gene_id", "hgnc_symbol",
                            "chromosome_name", "gene_biotype",
                            "start_position", "end_position"),
             biomart = "ENSEMBL_MART_ENSEMBL", 
@@ -299,7 +299,7 @@ gene in our dataset to match up with the names in the pre-trained
 set of gene pairs.
 
 Then, this can take a while to run. 
-```{r}
+```{r, eval=FALSE}
 library(scran)
 human.pairs <- readRDS(system.file("exdata", "human_cycle_markers.rds", package="scran"))
 assigned <- cyclone(sce, pairs=human.pairs, gene.names=rowData(sce)$gene_name_ensembl)
@@ -317,7 +317,7 @@ if the G2/M score is above 0.5 and greater than the G1 score;
 and in S phase if neither score is above 0.5. We save these 
 assignments into the `SingleCellExperiment` object for later use.
 
-```{r}
+```{r, eval=FALSE}
 sce$phases <- assigned$phases
 sce$cellcycle_score_G1 <- assigned$score$G1
 sce$cellcycle_score_G2M <- assigned$score$G2M
@@ -339,13 +339,13 @@ library(scater)
 sce <- readRDS(file.path(data_path, "sce_qc_0114.rds"))
 ```
 
-```{r, fig.width=8}
+```{r, fig.width=8, eval=FALSE}
 library(tidyverse)
 library(cowplot)
 
 p1 <- as.data.frame(colData(sce)) %>% 
   ggplot(aes(x=cellcycle_score_G1, y=cellcycle_score_G2M, 
-             color = cancer_status)) +
+             color = cancer_status_illumina)) +
   geom_point()
 
 p2 <- as.data.frame(colData(sce)) %>% 
@@ -357,14 +357,16 @@ cowplot::plot_grid(p1, p2, ncol=2, labels = LETTERS[1:2])
 ```
 
 Let's save this figure.
-```{r}
-pdf(here::here("figures/2019-07-22-cell-cycle.pdf"), width=12,height=4)
+```{r, eval=FALSE}
+pdf(here::here("figures/2019-07-22-cell-cycle-0114.pdf"), width=12,height=4)
 cowplot::plot_grid(p1, p2, ncol=2, labels = LETTERS[1:2])
 dev.off()
 ```
 
 We can calculate the absolute numbers and the 
-proportion of cells in each cell cycle phase 
+proportion of cells in each cell cycle phase. 
+
+Using Illumina calls
 ```{r}
 table(sce$phases)
 
@@ -375,6 +377,11 @@ x
 round(x / rowSums(x), 3)
 chisq.test(x) 
 ```
+
+We see the p-value is `r round(chisq.test(x)$p.value, 5)`, which is statistically
+signicant at the $\alpha$=0.05 level. 
+
+Using PacBio calls
 
 ```{r}
 x <- table(factor(sce$cancer_status_pacbio[sce$cancer_status_pacbio != "unknown"]), 
@@ -403,7 +410,7 @@ have at least 1 UMI in at least 5% of the data.
 ```{r}
 num_reads <- 1
 num_cells <- 0.05*ncol(sce)
-keep <- which(rowSums(as.matrix(counts(sce)[1:10,]) >= num_reads ) >= floor(num_cells))
+keep <- which(rowSums(as.matrix(counts(sce)) >= num_reads ) >= floor(num_cells))
 sce <- sce[keep,]
 sce
 ```
@@ -415,7 +422,7 @@ using the deconvolution method (Lun, Bach, and Marioni 2016).
 This is done with pre-clustering through `quickCluster()`
 to avoid pooling together very different cells.
 
-```{r}
+```{r, eval=FALSE}
 library(scran)
 
 set.seed(1000)
@@ -423,10 +430,10 @@ clusters <- quickCluster(sce, method="igraph", min.mean=0.01)
 table(clusters)
 
 sce <- computeSumFactors(sce, min.mean=0.01, clusters=clusters)
-summary(sizeFactors(sce_norm))
+summary(sizeFactors(sce))
 ```
 
-```{r}
+```{r, eval=FALSE}
 sce <- computeSpikeFactors(sce, type="MT", general.use=FALSE)
 ```
 
@@ -434,7 +441,7 @@ Finally, normalized log-expression values are computed for
 each endogenous gene or spike-in transcript using the
 appropriate size factors.
 
-```{r}
+```{r, eval=FALSE}
 sce <- normalize(sce)
 saveRDS(sce, file = file.path(data_path, "sce_norm_0114.rds"))
 ```
@@ -443,23 +450,20 @@ saveRDS(sce, file = file.path(data_path, "sce_norm_0114.rds"))
 
 ## Filter for highly variable genes
 
-```{r, eval=FALSE}
+```{r}
 sce_norm <- readRDS(file.path(data_path, "sce_norm_0114.rds"))
 
 library(scran)
-rownames(sce_norm) = scater::uniquifyFeatureNames(
-                        rowData(sce_norm)$gene_name_ensembl, 
-                        rowData(sce_norm)$hgnc_symbol)
+rownames(sce_norm) = rowData(sce_norm)$gene_name_unique
 
-keep_cell_MT <- (colSums(counts(sce_norm[isSpike(sce_norm), ])) >1)
+keep_cell_MT <- (colSums(as.matrix(counts(sce_norm[isSpike(sce_norm), ]))) > 1)
 sce_norm <- sce_norm[, keep_cell_MT]
 sce_norm
 ```
 
-```{r, eval=FALSE}
-var.fit <- trendVar(sce_norm, parametric=FALSE)
+```{r}
+var.fit <- trendVar(sce_norm, method = "spline",parametric=TRUE)
 var.out <- decomposeVar(sce_norm, var.fit)
-var.out$gene_name_symbol <- rowData(sce_norm)$gene_name_symbol
 plot(var.out$mean, var.out$total, pch=16, cex=0.6, xlab="Mean log-expression", 
     ylab="Variance of log-expression")
 curve(var.fit$trend(x), col="dodgerblue", lwd=2, add=TRUE)
@@ -472,7 +476,7 @@ that is significantly greater than zero. We use a false discovery
 rate (FDR) of 5% after correcting for multiple testing with 
 the Benjamini-Hochberg method.
 
-```{r, eval=FALSE}
+```{r}
 hvg.out <- var.out[which(var.out$FDR <= 0.05),]
 nrow(hvg.out)
 ```
@@ -485,12 +489,12 @@ to prioritize HVGs that are more likely to be true positives but,
 at the same time, less likely to be interesting. This is because 
 the ratio can be very large for HVGs that have very low total 
 variance and do not contribute much to the cell-cell heterogeneity.
-```{r, eval=FALSE}
+```{r}
 hvg.out <- hvg.out[order(hvg.out$bio, decreasing=TRUE),] 
 head(hvg.out)
 ```
 
-```{r, eval=FALSE}
+```{r}
 # remove MT genes for downstream analyses
 sce_norm <- sce_norm[!rowData(sce_norm)$is_feature_control, ] 
 sce_norm <- sce_norm[rownames(hvg.out), ]
@@ -498,34 +502,72 @@ sce_norm <- sce_norm[rownames(hvg.out), ]
 
 ## Dimensionality reduction 
 
-```{r, eval=FALSE}
+I use both Principal Components Analysis (PCA) and Uniform Manifold 
+Approximation and Projection (UMAP) in order to obtain reduced dimension 
+representations of the data.
+
+```{r}
 library(scater)
 
 # Using irlba to set up the umap for speed.
-sce_norm <- runPCA(sce_norm, ntop=Inf, method="irlba", ncomponents=20)
-```
+sce_norm <- runPCA(sce_norm,ncomponents=20, method="irlba", ntop=Inf)
 
-```{r, eval=FALSE}
 set.seed(1234)
-sce_norm <- runUMAP(sce_norm, ncomponents = 2, ntop=500)
-plotUMAP(sce_norm, colour_by="cancer_status") + ggtitle("umap")
-plotUMAP(sce_norm, colour_by="CD34") + ggtitle("umap")
+sce_norm <- runUMAP(sce_norm, use_dimred = "PCA")
+```
+
+Next we can plot the data using the 
+[`schex` package](https://github.com/SaskiaFreytag/schex) with 
+hexagon cell representations. First, calculate the hexagon 
+cell representation for each cell for a specified dimension 
+reduction representation. I decide to use `nbins=40` which
+specifies that I divide my x range into 40 bins. 
+
+```{r calc-hexbin}
+library(schex) 
+sce_norm <- make_hexbin(sce_norm, nbins = 70, 
+                        dimension_reduction = "UMAP")
+```
+
+Plot how many cells are in each hexagon cell. This should be
+relatively even, otherwise change the `nbins` parameter in 
+the previous calculation.
+
+```{r plot-density, fig.height=7, fig.width=7}
+plot_hexbin_density(sce_norm)
+```
+
+Color the hexagon cells by some meta information, such as
+the majority of cells cluster membership and the median 
+total count in each hexagon cell.
+
+```{r plot-meta, fig.height=7, fig.width=7}
+plot_hexbin_meta(sce_norm, col="cancer_status_illumina", action="prop")
+plot_hexbin_meta(sce_norm, col="total_counts", action="median")
+```
+
+```{r}
+plot_hexbin_gene(sce_norm, type="logcounts", gene="CD34", 
+                 action="median", xlab="UMAP1", ylab="UMAP2")
+plot_hexbin_gene(sce_norm, type="logcounts", gene="HBB", 
+                 action="median", xlab="UMAP1", ylab="UMAP2") + ggtitle("umap (E -- HBB)") # E
+plot_hexbin_gene(sce_norm, type="logcounts", gene="LMO4", 
+                 action="median", xlab="UMAP1", ylab="UMAP2") + ggtitle("umap (Ba -- Lmo4)") # Ba
+plot_hexbin_gene(sce_norm, type="logcounts", gene="ITGA2B", 
+                 action="median", xlab="UMAP1", ylab="UMAP2") + ggtitle("umap (MEG -- ITGA2B)") # MEG
+plot_hexbin_gene(sce_norm, type="logcounts", gene="HLF", 
+                 action="median", xlab="UMAP1", ylab="UMAP2") + ggtitle("umap (MPP -- HLF)") # MPP
+plot_hexbin_gene(sce_norm, type="logcounts", gene="CD79A", 
+                 action="median", xlab="UMAP1", ylab="UMAP2") + ggtitle("umap (Ly -- CD79A)") # Ly
+plot_hexbin_gene(sce_norm, type="logcounts", gene="CSF1R", 
+                 action="median", xlab="UMAP1", ylab="UMAP2") + ggtitle("umap (M -- CSF1R)") # M
+plot_hexbin_gene(sce_norm, type="logcounts", gene="MPO", 
+                 action="median", xlab="UMAP1", ylab="UMAP2") + ggtitle("umap (G -- MPO)") # G
 ```
 
 
-```{r, eval=FALSE}
-plotUMAP(sce_norm, colour_by="HBB") + ggtitle("umap (E -- HBB)") # E
-plotUMAP(sce_norm, colour_by="LMO4") + ggtitle("umap (Ba -- Lmo4)") # Ba
-plotUMAP(sce_norm, colour_by="ITGA2B") + ggtitle("umap (MEG -- ITGA2B)") # MEG
-plotUMAP(sce_norm, colour_by="HLF") + ggtitle("umap (MPP -- HLF)") # MPP
-plotUMAP(sce_norm, colour_by="CD79A") + ggtitle("umap (Ly -- CD79A)") # Ly
-plotUMAP(sce_norm, colour_by="CSF1R") + ggtitle("umap (M -- CSF1R)") # M
-plotUMAP(sce_norm, colour_by="MPO") + ggtitle("umap (G -- MPO)") # G
-```
 
-
-
-## trajectory analysis
+## Trajectory analysis
 
 Install and load monocle
 
@@ -533,7 +575,7 @@ Install and load monocle
 BiocManager::install("monocle")
 ```
 
-```{r, eval=FALSE}
+```{r}
 library(monocle)
 
 # Converting the exprs data in log scale back to original scale
@@ -542,7 +584,7 @@ pd <- as.data.frame(colData(sce_norm))
 fd <- as.data.frame(rowData(sce_norm))
 fd$gene_short_name <- rownames(fd)
 
-monocle_cds <- newCellDataSet(data, 
+monocle_cds <- newCellDataSet(as.matrix(data), 
             phenoData = methods::new("AnnotatedDataFrame", data = pd), 
             featureData =methods::new("AnnotatedDataFrame", data = fd), 
             lowerDetectionLimit = 1, expressionFamily = negbinomial.size())
@@ -576,24 +618,25 @@ monocle_cds <- reduceDimension(monocle_cds, max_components = 2,
 monocle_cds <- orderCells(monocle_cds)
 dim(monocle_cds)
 
-saveRDS(monocle_cds, file = here("data/0114P_RNAseq/BM_CD34/cds_monocle_0114.rds"))
+saveRDS(monocle_cds, file = file.path(data_path, "cds_monocle_0114.rds"))
 rm(monocle_cds)
 ```
 
 
-```{r, eval=FALSE}
+```{r}
 library(monocle)
-monocle_cds <- readRDS(file = here("data/0114P_RNAseq/BM_CD34/cds_monocle_0114.rds"))
+monocle_cds <- readRDS(file = file.path(data_path, "cds_monocle_0114.rds"))
 
 plot_cell_trajectory(monocle_cds, color_by = "Cluster", cell_size = 0.5)
 plot_cell_trajectory(monocle_cds, color_by = "Pseudotime", cell_size = 0.5)
 plot_cell_trajectory(monocle_cds, color_by = "State", cell_size = 0.5)
-plot_cell_trajectory(monocle_cds, color_by = "cancer_status", cell_size = 0.5)
+plot_cell_trajectory(monocle_cds, color_by = "cancer_status_illumina", cell_size = 0.5)
+plot_cell_trajectory(monocle_cds, color_by = "cancer_status_pacbio", cell_size = 0.5)
 plot_cell_trajectory(monocle_cds, color_by = "phases", cell_size = 0.5)
 plot_cell_trajectory(monocle_cds, color_by = "cellcycle_score_normalized_G2M", cell_size = 0.5)
 ```
 
-```{r, eval=FALSE}
+```{r}
 pData(monocle_cds)$CD34 <- ifelse(exprs(monocle_cds)[grep("CD34", rownames(monocle_cds)), ]>0, 1, 0)
 plot_cell_trajectory(monocle_cds, color_by = "as.factor(CD34)", cell_size = 0.5)
 
@@ -631,11 +674,24 @@ plot_cell_trajectory(monocle_cds, color_by = "as.factor(CSF1R)", cell_size = 0.5
 Let's look again at the relationship between 
 the proportion of cells in each cell cycle phase. 
 
-```{r, eval=FALSE}
+Using Illumina calls
+```{r}
 table(monocle_cds$phases)
 
-x <- table(factor(monocle_cds$cancer_status[monocle_cds$cancer_status != "unknown"]), 
-      monocle_cds$phases[monocle_cds$cancer_status != "unknown"]) 
+x <- table(factor(monocle_cds$cancer_status_illumina[monocle_cds$cancer_status_illumina != "unknown"]), 
+      monocle_cds$phases[monocle_cds$cancer_status_illumina != "unknown"]) 
+x
+
+round(x / rowSums(x), 3)
+chisq.test(x) 
+```
+
+Using PacBio calls
+```{r}
+table(monocle_cds$phases)
+
+x <- table(factor(monocle_cds$cancer_status_pacbio[monocle_cds$cancer_status_pacbio != "unknown"]), 
+      monocle_cds$phases[monocle_cds$cancer_status_pacbio != "unknown"]) 
 x
 
 round(x / rowSums(x), 3)
@@ -645,7 +701,7 @@ chisq.test(x)
 Let's also calculate the fraction of mutations along
 the trajectory. 
 
-```{r, eval=FALSE}
+```{r}
 # p(true cancer cell | obs wt cell) = 
 #     P(obs wt | true cancer) * p(true cancer)   \ 
 #     (P(obs wt | true cancer) * p(true cancer)  + P(obs wt | not cancer) * p(not cancer) ) = 
@@ -658,24 +714,19 @@ the trajectory.
 summary(monocle_cds$Pseudotime)
 xx <- cut(monocle_cds$Pseudotime, breaks = seq(0, max(monocle_cds$Pseudotime) + 3, by = 3))
 
-n_mut <- sapply(levels(xx), function(i){
-  tmp <- monocle_cds$cancer_status[xx == i &  !(monocle_cds$cancer_status == "unknown")]
-  sum(tmp == "mut", na.rm = TRUE)
-})
-n_mut
-
-n_wt <- sapply(levels(xx), function(i){
-  tmp <- monocle_cds$cancer_status[xx == i &  !(monocle_cds$cancer_status == "unknown")]
-  sum(tmp == "wt", na.rm = TRUE)
-})
-n_wt
-
-frac_cancer <- sapply(levels(xx), function(i){
-  tmp <- monocle_cds$cancer_status[xx == i &  !(monocle_cds$cancer_status == "unknown")]
+frac_cancer_illumina <- sapply(levels(xx), function(i){
+  tmp <- monocle_cds$cancer_status_illumina[xx == i &  !(monocle_cds$cancer_status_illumina == "unknown")]
   2*sum(tmp == "mut", na.rm = TRUE) / sum(tmp %in% c("wt", "mut"), na.rm = TRUE)
 })
 
-frac_cancer
+frac_cancer_illumina
+
+frac_cancer_pacbio <- sapply(levels(xx), function(i){
+  tmp <- monocle_cds$cancer_status_pacbio[xx == i &  !(monocle_cds$cancer_status_pacbio == "unknown")]
+  2*sum(tmp == "mut", na.rm = TRUE) / sum(tmp %in% c("wt", "mut"), na.rm = TRUE)
+})
+
+frac_cancer_pacbio
 ```
 
 

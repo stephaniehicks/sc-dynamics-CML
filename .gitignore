@@ -1,6 +1,12 @@
 data/*
 figures/*
-patients/*.html
+patients/18-0124/*.html
+patients/19-0114/*.html
+patients/19-0117/*.html
+patients/19-0222/*.html
+patients/19-0311/*.html
+patients/19-0329/*.html
+patients/19-0429/*.html
 .Rproj.user/
 .DS_Store 
 .Rproj.user
